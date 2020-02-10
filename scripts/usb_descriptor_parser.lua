@@ -47,18 +47,24 @@ local function createDesc(name, desc)
             assert(p1 and p1>1, "desc field name wrong")
             local t = prefix[v:sub(1, p1-1)]
             assert(t, "unkown prefix " .. v:sub(1, p1-1))
-            local fv = unpack(t[2], data, offset)
             local fieldLen = t[1]
-            if     type(t[3]) == "string" then
-                fv = fmt(t[3], fv)
-            elseif type(t[3]) == "function" then
-                local a,b,c = t[3](fv, info, data, offset, context)
-                fv = a or fv
-                fieldLen = b or fieldLen
-                v = c or v
+            local fv = ""
+            if offset + fieldLen - 1 > #data then
+                fv = "Truncated"
             else
-                fv = "error"
+                fv = unpack(t[2], data, offset)
+                if     type(t[3]) == "string" then
+                    fv = fmt(t[3], fv)
+                elseif type(t[3]) == "function" then
+                    local a,b,c = t[3](fv, info, data, offset, context)
+                    fv = a or fv
+                    fieldLen = b or fieldLen
+                    v = c or v
+                else
+                    fv = "error"
+                end
             end
+            
             offset = offset + fieldLen
             tb[#tb+1] = { fv, v}
             info[v] = fv

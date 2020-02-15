@@ -72,9 +72,13 @@ local usb_defs = {
   OTHER_DESC      = 7,
   UNUSED_8_DESC   = 8,
   OTG_DESC        = 9,
+  IAD_DESC        = 0xB,
+  BOS_DESC        = 0xF,
+  MAX_STD_DESC    = 0x9,
 
   HID_DESC        = 0x21,
   REPORT_DESC     = 0x22,
+  FUNC_DESC       = 0x24,
   HUB_DESC        = 0x29,
 
   MAX_KNOWN_DESCRIPTOR = 0x29,

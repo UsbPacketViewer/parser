@@ -2,8 +2,8 @@
 -- encoding: utf-8
 require("file_base")
 require("parser")
-require("pcap_file")
-require("iti1480a")
+require("file_pcap")
+require("file_iti1480a")
 
 
 

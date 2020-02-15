@@ -1,4 +1,4 @@
--- control_transfer.lua
+-- usb_control_transfer.lua
 -- control transfer parser
 
 local html = require("html")
@@ -147,4 +147,4 @@ end
 
 
 
-package.loaded["control_transfer"] = controlXferHandler
+package.loaded["usb_control_transfer"] = controlXferHandler

@@ -1,7 +1,7 @@
--- iti1480a.lua
+-- file_iti1480a.lua
 -- encoding: utf-8
 require("file_base")
-require("pcap_file")  -- not real used, just make sure pcap_file is the first format
+require("file_pcap")  -- not real used, just make sure pcap_file is the first format
 local unpack = string.unpack
 local pack = string.pack
 local fmt = string.format
@@ -76,4 +76,4 @@ local ITI1480A_handler = {
 
 register_filehandler(ITI1480A_handler)
 
-package.loaded["iti1480a"] = "iti1480a"
+package.loaded["file_iti1480a"] = "file_iti1480a"

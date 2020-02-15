@@ -7,6 +7,32 @@ local unpack = string.unpack
 local html = require("html")
 local usb_defs = require("usb_defs")
 local desc_parser = require("usb_descriptor_parser")
+_G.bf = _G.bf or {}
+_G.bf.bmRequest = {
+    name = "bmRequest",
+    {name = "Recipient", mask = 0x1f, [0]= "Device", [1] = "Interface", [2] = "Endpoint" ,[3]="Other"},
+    {name = "Type",      mask = 0x60, [0] = "Standard", [1]="Class",[2]="Vendor",[3]="Reserved"},
+    {name = "Direction", mask = 0x80, [0]="Host to Device", [1]="Device to Host"}
+}
+
+_G.bf.wValue_getDescriptor = {
+    name = "wValue",
+    bits = 16,
+    {name = "[8..15] Type", mask = 0xff00,
+        [1] = "Device Descriptor",
+        [2] = "Configuration Descriptor",
+        [3] = "String Descriptor",
+        [4] = "Interface Descriptor",
+        [5] = "Endpoint Descriptor",
+        [6] = "Device Qualifier Descriptor",
+        [7] = "Other Speed Descriptor",
+        [8] = "Interface Power Descriptor",
+        [9] = "OTG Descriptor",
+        [0x22] = "Report Descriptor",
+    },
+    {name = "[0..7] Index", mask = 0x00ff},
+}
+local bf = _G.bf
 
 function parser.parseSetup(data, context)
     local setup = {}
@@ -36,43 +62,69 @@ function parser.parseSetup(data, context)
     elseif recip == 3 then recipStr = "Other"
     else                   recipStr = "Reserved"
     end
-    local bmRequest_desc = "(" .. dir .. ", " .. typStr .. ", " .. recipStr .. ")"
+    setup.recip = recipStr
+    
+    if recipStr == "Interface" then
+        local cls = context:getInterfaceClass(wIndex)
+        if cls and cls.parseSetup then
+            local r = cls.parseSetup(setup, context)
+            if r then return r end
+        end
+    end
+    local dev = context:currentDevice()
+    if dev and dev.parseSetup then
+        local r = dev.parseSetup(setup, context)
+        if r then return r end
+    end
+
+    
 
     local bRequest_desc = ""
     if       typStr == "Standard" then
         bRequest_desc = usb_defs.stdRequestName(bRequest)
     elseif   typStr == "Class" then
-        bRequest_desc = " class specified " .. bRequest
+        bRequest_desc = " class req " .. bRequest
     elseif   typStr == "Vendor" then
-        bRequest_desc = " Vendor specified " .. bRequest
+        bRequest_desc = " Vendor req " .. bRequest
     end
 
     local wValue_desc = ""
-    if (bRequest == usb_defs.CLEAR_FEATURE) or (bRequest == usb_defs.SET_FEATURE) then
-        wValue_desc = fmt("(Feature: %d)", wValue)
-    elseif bRequest == usb_defs.SET_ADDRESS then
-        wValue_desc = fmt("(Address: %d)", wValue)
-    elseif (bRequest == usb_defs.GET_DESCRIPTOR) or (bRequest == usb_defs.SET_DESCRIPTOR) then
-        wValue_desc = fmt("(Descriptor: %s/%d)", usb_defs.descriptorName(wValue>>8), wValue&0xff)
-    elseif bRequest == usb_defs.SET_CONFIG then
-        wValue_desc = fmt("(Config: %d)", wValue)
+    local WValue_field = { "wValue",    fmt("0x%04x",   wValue) }
+    if typStr == "Standard" then
+        if (bRequest == usb_defs.CLEAR_FEATURE) or (bRequest == usb_defs.SET_FEATURE) then
+            wValue_desc = fmt("Feature: %d", wValue)
+            WValue_field[3] = wValue_desc
+        elseif bRequest == usb_defs.SET_ADDRESS then
+            wValue_desc = fmt("Address: %d", wValue)
+            WValue_field[3] = wValue_desc
+        elseif (bRequest == usb_defs.GET_DESCRIPTOR) or (bRequest == usb_defs.SET_DESCRIPTOR) then
+            WValue_field = html.expandBitFiled(wValue, bf.wValue_getDescriptor, true)
+        elseif bRequest == usb_defs.SET_CONFIG then
+            wValue_desc = fmt("Config: %d", wValue)
+            WValue_field[3] = wValue_desc
+        end
     end
 
     local wIndex_desc = ""
-    if (wValue > 0) and ((bRequest == usb_defs.GET_DESCRIPTOR) or (bRequest == usb_defs.SET_DESCRIPTOR)) then
-        wIndex_desc = fmt("(Language: 0x%04x)", wIndex)
-    else
+    if recipStr == "Device" then
+        if (wValue > 0) and ((bRequest == usb_defs.GET_DESCRIPTOR) or (bRequest == usb_defs.SET_DESCRIPTOR)) then
+            wIndex_desc = fmt("Language ID: 0x%04x", wIndex)
+        else
+        end
+    elseif recipStr == "Interface" then
+        wIndex_desc = fmt("Interface: %d", wIndex)
+    elseif recipStr == "Endpoint" then
+        wIndex_desc = fmt("Endpoint: %d", wIndex & 0xff)
     end
 
     setup.html = html.makeTable{
         title = typStr .. " request",
-        header = {"Value", "Description"},
-        width = {80, 400},
-        {fmt("0x%02x",   bmRequest), "bmRequest " .. bmRequest_desc },
-        {fmt("%d",     bRequest),    "bRequest  " .. bRequest_desc  },
-        {fmt("0x%02x",   wValue),    "wValue " .. wValue_desc    },
-        {fmt("%d",     wIndex),      "wIndex" .. wIndex_desc    },
-        {fmt("%d",     wLength),     "wLength"   },
+        header = {"Field", "Value", "Description"},
+        html.expandBitFiled(bmRequest, bf.bmRequest),
+        {"bRequest",  fmt("%d",       bRequest),    bRequest_desc  },
+        WValue_field,
+        {"wIndex",    fmt("%d",       wIndex),      wIndex_desc    },
+        {"wLength",   fmt("%d",       wLength),     ""},
     }
     
     setup.name = bRequest_desc
@@ -80,9 +132,22 @@ function parser.parseSetup(data, context)
 end
 
 function parser.parseData(setup, data, context)
+    if setup.recip == "Interface" then
+        local cls = context:getInterfaceClass(setup.wIndex)
+        if cls and cls.parseSetupData then
+            local r = cls.parseSetupData(setup, data, context)
+            if r then return r end
+        end
+    end
+
+    local dev = context:currentDevice()
+    if dev and dev.parseSetupData then
+        local r = dev.parseSetupData(setup, data, context)
+        if r then return r end
+    end
+
     if setup.type == "Standard" and (setup.bRequest == usb_defs.GET_DESCRIPTOR or bRequest == usb_defs.SET_DESCRIPTOR) then
-        if setup.wValue >> 8 == usb_defs.REPORT_DESC then
-        else
+        if (setup.wValue >> 8) <= usb_defs.MAX_STD_DESC then
             local descInfo = desc_parser.parse(data, context)
             return descInfo.html
         end

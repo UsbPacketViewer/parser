@@ -1,4 +1,4 @@
--- pcap_file.lua
+-- file_pcap.lua
 -- encoding: utf-8
 require("file_base")
 local unpack = string.unpack
@@ -50,4 +50,4 @@ local pcap_handler = {
 
 register_filehandler(pcap_handler)
 
-package.loaded["pcap_file"] = "pcap_file"
+package.loaded["file_pcap"] = "file_pcap"

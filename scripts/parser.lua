@@ -120,7 +120,7 @@ local function on_packet(pkt, ts, id, updateGraph)
         local res = parser(pkt, ts, id)
         transactionParser(ts, res, id, updateGraph, parserContext)
     else
-        updateGraph(errorData(fmt("Unknown PID 0x%02X", pid)) , id, {id=id})
+        updateGraph( gb.wild(parse_token("Unkown")(pkt, ts, id), ts) , id, {id=id})
     end
 end
 
@@ -134,8 +134,9 @@ local function elementId(ele)
     return ele.id, -1, -1
 end
 
-function parser_append_packet(ts, nano, pkt, id, transId, handler, context)
+function parser_append_packet(ts, nano, pkt, status, id, transId, handler, context)
     local timestamp = fmt("%d.%09d", ts, nano)
+    local speed = status & 0x0f
     on_packet(pkt, timestamp, id, function(content, id, element)
         local id1, id2, id3 = elementId(element)
         local r = handler(context, tostring(content), transId, id, id1, id2 or -1, id3 or -1)

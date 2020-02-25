@@ -48,14 +48,14 @@ local ITI1480A_handler = {
                 self.ts_utc = self.ts_utc + 1
                 self.ts_offset = self.ts_offset - 1000000000
             end
-            return self.ts_utc, math.floor(self.ts_offset + 0.5), v
+            return self.ts_utc, math.floor(self.ts_offset + 0.5), v, 0
         end
         return nil
     end,
     init_write = function(self, file)
         return true
     end,
-    write_packet = function(self, file, ts, nano, pkt)
+    write_packet = function(self, file, ts, nano, pkt, status)
         self.last_ts = self.last_ts or (ts*1e9 + nano)
         local cur_ts = ts*1e9 + nano
         local d_ts = math.floor( (cur_ts - self.last_ts)*60/1000 + 0.5)

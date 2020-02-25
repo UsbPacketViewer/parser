@@ -77,9 +77,9 @@ function open_file(name, packet_handler, context)
     end
     local pkt_count = 0
     while fh do
-        local ts, nano, pkt = fh:read_packet(file)
+        local ts, nano, pkt, status = fh:read_packet(file)
         if ts and nano and pkt then
-            packet_handler(context, ts, nano, pkt, file:seek(), totalLen)
+            packet_handler(context, ts, nano, pkt, status or 0, file:seek(), totalLen)
             pkt_count = pkt_count + 1
         else
             break
@@ -107,10 +107,10 @@ function write_file(name, packet_handler, context)
     local pkt_count = 0
     if fh.init_write and fh:init_write(file) then
         while true do
-            local ts, nano, pkt = packet_handler(context)
+            local ts, nano, pkt, status = packet_handler(context)
             local res = nil
             if ts and nano and pkt then
-                res = fh:write_packet(file, ts, nano, pkt)
+                res = fh:write_packet(file, ts, nano, pkt, status or 0)
             end
             if not res then
                 break

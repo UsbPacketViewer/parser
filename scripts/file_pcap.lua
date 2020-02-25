@@ -34,7 +34,7 @@ local pcap_handler = {
         local pkt = file:read(act_len)
         if not pkt then return nil end
         if #pkt ~= act_len then return nil end
-        return ts, nano*self.mul, pkt
+        return ts, nano*self.mul, pkt, 0
     end,
     init_write = function(self, file)
         file:write(pack("I4", PCAP_NANO_MAGIC))
@@ -42,7 +42,7 @@ local pcap_handler = {
         file:write(pack("I4I4I4I4", 0,0,65535, DLT_USBLL))
         return true
     end,
-    write_packet = function(self, file, ts, nano, pkt)
+    write_packet = function(self, file, ts, nano, pkt, status)
         file:write(pack("I4I4I4I4",ts,nano,#pkt,#pkt), pkt)
         return true
     end

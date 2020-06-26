@@ -62,11 +62,12 @@ local prefix = {
 }
 
 local function createDesc(name, desc)
-    return function(data, offset, context)
+    return function(data, offset, context, descriptionTable)
         local tb = {}
         local info = {}
         tb.title = name .. " Descriptor"
         tb.header = {"Field", "Value", "Description"}
+        local lastVid = nil
         for i,v in ipairs(desc) do
             local p1, p2 = v:find("[A-Z]")
             assert(p1 and p1>1, "desc field name wrong")
@@ -89,8 +90,19 @@ local function createDesc(name, desc)
             if desc[v] then
                 tb[#tb+1] = html.expandBitFiled(fieldValue, desc[v])
             else
-                tb[#tb+1] = {v, fieldDisplay, ""}
+                local desc = ""
+                if descriptionTable then
+                    desc = descriptionTable[v]
+                end
+                tb[#tb+1] = {v, fieldDisplay, desc or ""}
             end
+            if v == "idVendor" then
+                lastVid = fieldValue
+                tb[#tb][3] = '<a href="https://usb-ids.gowdy.us/read/UD/'..fmt("%04x", fieldValue)..'">Who\'s that?</a>'
+            elseif v == "idProduct" then
+                tb[#tb][3] = '<a href="https://usb-ids.gowdy.us/read/UD/'..fmt("%04x/%04x", (lastVid or 0), fieldValue)..'">What\'s it?</a>'
+            end
+
             info[v] = fieldValue
         end
         info.html = html.makeTable(tb)
@@ -105,7 +117,11 @@ local function parseStringDesc(data, offset, context)
     tb.header = {"Value", "Description"}
     info.bLength =          unpack("I1", data, offset)
     info.bDescriptorType =  unpack("I1", data, offset + 1)
-    info.string = makeString(data, offset+2, (info.bLength/2)-1)
+    if #data + 1 >= offset + info.bLength then
+        info.string = makeString(data, offset+2, (info.bLength/2)-1)
+    else
+        info.string = "<truncated>"
+    end
     tb[#tb+1] = { info.bLength, "bLength" }
     tb[#tb+1] = { info.bDescriptorType, "bDescriptorType" }
     tb[#tb+1] = { "string", info.string}
@@ -136,6 +152,36 @@ local function parseUnknownDesc(data, offset, context)
     info.html = html.makeTable(tb)
     return info
 end
+
+descTable[usb_defs.DEVICE_DESC] = createDesc("Device", {
+    "bLength",
+    "bDescriptorType",
+    "bcdUSB",
+    "bDeviceClass",
+    "bDeviceSubClass",
+    "bDeviceProtocol",
+    "bMaxPacketSize",
+    "idVendor",
+    "idProduct",
+    "bcdDevice",
+    "iManufacturer",
+    "iProduct",
+    "iSerial",
+    "bNumConfigurations",
+    })
+
+
+descTable[usb_defs.DEV_QUAL_DESC] = createDesc("Device Qualifier", {
+    "bLength",
+    "bDescriptorType",
+    "bcdUSB",
+    "bDeviceClass",
+    "bDeviceSubClass",
+    "bDeviceProtocol",
+    "bMaxPacketSize",
+    "bNumConfigurations",
+    "bReserved",
+    })
 
 descTable[usb_defs.DEVICE_DESC] = createDesc("Device", {
     "bLength",
@@ -201,6 +247,16 @@ descTable[usb_defs.HID_DESC] = createDesc("HID", {
     "wDescriptorLength1",
     })
 
+descTable[usb_defs.IAD_DESC] = createDesc("IAD", {
+    "bLength",
+    "bDescriptorType",
+    "bFirstInterface",
+    "bInterfaceCount",
+    "bFunctionClass",
+    "bFunctionSubClass",
+    "bFunctionProtocol",
+    "iFunction",
+    })
 
 local function setDeviceDesc(descs, context)
     local dev = context:currentDevice()
@@ -219,6 +275,13 @@ local function setDeviceDesc(descs, context)
         }
         context:setEpDesc(context.addrStr, "OUT", descOut)
     end
+
+    dev.deviceClass = context:getVendorProduct(dev.deviceDesc.idVendor, dev.deviceDesc.idProduct)
+    dev.deviceClass = dev.deviceClass or context:getClass({
+        bInterfaceClass = dev.deviceDesc.bDeviceClass,
+        bInterfaceSubClass = dev.deviceDesc.bDeviceSubClass,
+        bInterfaceProtocol = dev.deviceDesc.bDeviceProtocol,
+    })
 end
 
 local function setConfigDesc(descs, context)
@@ -274,16 +337,20 @@ function parser.parse(data, context)
                 desc = cls.descriptorParser(data, offset, context)
             end
         end
-        local praser = descTable[t] or parseUnknownDesc
-        if praser then
-            desc = desc or praser(data, offset, context)
+        local parseFunc = descTable[t] or parseUnknownDesc
+        if parseFunc then
+            desc = desc or parseFunc(data, offset, context)
+            if desc.bDescriptorType == usb_defs.INTERFACE_DESC then
+                local cls = context:getClass(desc)
+                if cls and cls.getName then
+                    desc = parseFunc(data, offset, context, cls.getName(desc, context))
+                end
+                lastInterface = desc
+            end
             offset = offset + desc.bLength
             info.html = info.html or ""
             info.html = info.html .. desc.html
             info[#info+1] = desc
-            if desc.bDescriptorType == usb_defs.INTERFACE_DESC then
-                lastInterface = desc
-            end
         end
     end
     gotDescriptor(info, context)

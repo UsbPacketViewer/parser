@@ -5,12 +5,14 @@
 -- cls.parseSetupData(setup, data, context)    return a html to describe the data
 -- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
 -- cls.descriptorParser(data, offset, context)   return a parsed descriptor
--- HID class definition  https://usb.org/sites/default/files/documents/hid1_11.pdf
+-- cls.getName(descriptor, context)              return a field name table
+-- HID class definition  https://www.usb.org/sites/default/files/documents/hid1_11.pdf
 
 local html = require("html")
 local usb_defs = require("usb_defs")
 local gb = require("graph_builder")
 require("usb_setup_parser")
+require("usb_register_class")
 
 local fmt = string.format
 local unpack = string.unpack
@@ -164,9 +166,9 @@ function cls.transferHandler(xfer, trans, ts, updateGraph, context)
     local name = "HID data"
     local dataBlock = gb.data("")
     local data = ""
-    if #trans.pkts > 1 and trans.pkts[2].isData then
-        dataBlock = gb.data(trans.pkts[2].data)
-        data = trans.pkts[2].data
+    if trans.data then
+        dataBlock = gb.data(trans.data)
+        data = trans.data
     end
     xfer.infoData = data
     local f = gb.F_NAK
@@ -235,7 +237,7 @@ function cls.transferHandler(xfer, trans, ts, updateGraph, context)
         flagBlock = gb.block("success", "", gb.C.ACK)
     end
     local addr,ep = gb.str2addr(xfer.addrStr)
-    local res = gb.ts(name, ts, gb.C.XFER) .. gb.addr(addr) .. gb.endp(ep) .. dataBlock .. flagBlock
+    local res = gb.ts(name, ts, gb.C.XFER, xfer.speed) .. gb.addr(addr) .. gb.endp(ep) .. dataBlock .. flagBlock
              .. gb.F_XFER .. f .. xfer.addrStr
     trans.infoHtml = xfer.infoHtml
     updateGraph( res, xfer.id, xfer)
@@ -286,4 +288,26 @@ cls.bInterfaceClass     = 3
 cls.bInterfaceSubClass  = nil
 cls.bInterfaceProtocol  = nil
 
+function cls.getName(desc, context)
+    local subName = "Reserved"
+    if      desc.bInterfaceSubClass == 0  then
+        subName = "No SubClass"
+    elseif  desc.bInterfaceSubClass == 1  then
+        subName = "Boot Interface"
+    end
+    local bootName = "Reserved"
+    if     desc.bInterfaceProtocol == 0  then
+        bootName = "None"
+    elseif desc.bInterfaceProtocol == 1  then
+        bootName = "Keyboard"
+    elseif desc.bInterfaceProtocol == 2  then
+        bootName = "Mouse"
+    end
+    return {
+        bInterfaceClass = "HID",
+        bInterfaceSubClass = subName,
+        bInterfaceProtocol = bootName,
+    }
+end
+register_class_handler(cls)
 package.loaded["usb_class_hid"] = cls

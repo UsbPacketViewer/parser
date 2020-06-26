@@ -21,9 +21,9 @@ local name2Color = {
     ACK   = {"#98FB98" },
     NAK   = {"#FFC0CB", "black"},
     NYET  = {"#FFC0CB", "black"},
-    STALL = {"#00FF7F", "white"},
+    STALL = {"#00FF7F", "black"},
 
-    PRE   = {"red"  , "white"},
+    PRE   = {"#98FB98", "black"},
     SPLIT = {"red"  , "white"},
     
     CRC   = {"#696969", "white"},
@@ -41,6 +41,8 @@ local name2Color = {
     PACKET= {"#ECF5FF"},
     REQ   = {"#B9B973"},
     INCOMPLETE = {"#2F4F4F", "white"},
+
+    SPEED = {"darkgreen", "white"},
 }
 gb.name2Color = name2Color
 gb.C = name2Color
@@ -92,6 +94,8 @@ end
 local function graphConcat(t1, t2)
     if type(t2) == "string" then
         t1.flags = t1.flags or ""
+        local p1 = t2:find("[%({%[]")
+        if p1 == 1 then t1.flags = "" end
         t1.flags = t1.flags .. t2
         return t1
     end
@@ -126,8 +130,11 @@ local function makeData(name, data, color, width, textColor, sep)
     return setmetatable({d}, graph_meta)
 end
 
-local function makeTimestamp(name, ts, color, textColor)
-    return makeData(name, ts, color or name2Color.TS[1], 180, textColor or name2Color.TS[2] or "black", 20)
+local function makeTimestamp(name, ts, color, speed)
+    speed = speed or "X"
+    speed = speed:sub(1,1)
+    return makeData(name, ts, color or name2Color.TS[1], 180, name2Color.TS[2] or "black")
+    .. makeData("S", speed, name2Color.SPEED[1], 20, name2Color.SPEED[2], 20)
 end
 
 local function errorData(reason)
@@ -136,7 +143,7 @@ end
 
 
 local function makeToken(token, hasCRC)
-    local color = name2Color[token.name] or {}
+    local color = name2Color[token.name] or name2Color.ERROR
     local res = makeData(token.name, token.pid, color[1], 60, color[2])
     local flags = ""
     if token.name == "SOF" then
@@ -154,6 +161,39 @@ local function makeToken(token, hasCRC)
         res = res..makeData("CRC5" , token.crc5, name2Color.CRC[1], 60, name2Color.CRC[2])
     end
     return res .. gb.F_PACKET .. flags
+end
+
+local epType2str = {
+    [0] = "Control",
+    [1] = "Isoch",
+    [2] = "Bulk",
+    [3] = "Interrupt",
+}
+local function makeSplitPacket(token, hasCRC)
+    local color = name2Color[token.name] or {}
+    local prefix = token.isStart and "S" or "C"
+    local res = makeData(prefix..token.name, token.pid, color[1], 60, color[2])
+    res = res..makeData("ADDR", token.addr, name2Color.ADDR[1], 60, name2Color.ADDR[2])
+    res = res..makeData("PORT", token.port, name2Color.ENDP[1], 60, name2Color.ENDP[2])
+    local flags =  token.epType == 1 and gb.F_ISO or ""
+    local speed = token.isLowSpeed and "Low Speed" or "Full Speed"
+    local epType = epType2str[token.epType] or "Unknown"
+    res = res..makeData(epType, speed, name2Color.DATA[1], 120, name2Color.DATA[2])
+    local se = token.isLowSpeed and "1 " or "0 "
+    se = se .. (token.isEnd and "1" or "0")
+    res = res..makeData("S E", se, name2Color.TOGGLE, 60)
+    if hasCRC then
+        res = res..makeData("CRC5" , token.crc5, name2Color.CRC[1], 60, name2Color.CRC[2])
+    end
+    return res .. gb.F_PACKET .. flags
+end
+
+local function makeUnknownPacket(token)
+    local pid = "Unknwon"
+    if token then
+        pid = token.pid or pid
+    end
+    return makeData("Unknown", pid, name2Color.ERROR, 60) .. gb.F_PACKET .. gb.F_ERROR
 end
 
 local function makeDataContent(data)
@@ -193,12 +233,12 @@ gb.block = function(name, data, color, width, textColor, sep)
     width = width or 60
     color = color or name2Color.TS
     data = data or ""
-    return makeData(name, data, color, width, textColor, sep)
+    return makeData(name, data, color, width, textColor, sep) .. gb.F_PACKET .. gb.F_ERROR
 end
-gb.ts = function(name, ts, color)
+gb.ts = function(name, ts, color, speed)
     color = color or name2Color.TS
     assert(type(color) == "table")
-    return makeTimestamp(name, ts, color)
+    return makeTimestamp(name, ts, color, speed)
 end
 gb.error = errorData
 gb.addr = function(addr, n)
@@ -210,18 +250,27 @@ end
 gb.req = function(req, n)
     return makeData(n or "Request", req, name2Color.REQ, 120)
 end
-gb.incomp = function(n)
-    return makeData(n or "Incomplete", "", name2Color.INCOMPLETE, 120)
+gb.incomp = function(n, w)
+    return makeData(n or "Incomplete", "", name2Color.INCOMPLETE, w or 120)
 end
 gb.data = function(d, hasCRC)
     if type(d) == "string" then return makeDataContent(d) end
     if d.isData then return makeDataPacket(d, hasCRC) end
     if d.isToken then return makeToken(d, hasCRC) end
-    if d.isHandshake  or d.isSpecial then return makeAckPacket(d) end
-    error("Unknown data type")
+    if d.isHandshake then return makeAckPacket(d) end
+    if d.isSplit then return makeSplitPacket(d, hasCRC) end
+    return makeUnknownPacket(d)
 end
 gb.wild = function(d, ts)
-    return gb.ts("Wild packet " .. tostring(d.id) , ts or "", name2Color.ERROR) .. gb.data(d) .. gb.F_ERROR
+    if d.name == "PRE" then
+        return gb.ts("Preamble " .. tostring(d.id) , ts or "", name2Color.ACK, d.speed) .. gb.data(d, true) .. gb.F_ACK
+    end
+    return gb.ts("Wild packet " .. tostring(d.id) , ts or "", name2Color.ERROR, d.speed) .. gb.data(d, true) .. gb.F_ERROR
 end
+
+gb.success = function(info)
+    return gb.block(info or "success", "", gb.C.ACK)
+end
+
 
 package.loaded["graph_builder"] = gb

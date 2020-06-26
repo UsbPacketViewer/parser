@@ -29,9 +29,19 @@ _G.bf.wValue_getDescriptor = {
         [8] = "Interface Power Descriptor",
         [9] = "OTG Descriptor",
         [0x22] = "Report Descriptor",
+        [0x29] = "Hub Descriptor",
     },
     {name = "[0..7] Index", mask = 0x00ff},
 }
+
+_G.bf.get_device_status = {
+    name = "wStatus",
+    bits = 16,
+    {name = "Self Powered", mask = 0x0001, [0] = "Bus Powered", [1] = "Self Powered"},
+    {name = "Remote Wakeup", mask = 0x0002, [0] = "Disabled", [1] = "Enabled"},
+    {name = "Reserved", mask = 0xfffc},
+}
+
 local bf = _G.bf
 
 function parser.parseSetup(data, context)
@@ -70,7 +80,16 @@ function parser.parseSetup(data, context)
             local r = cls.parseSetup(setup, context)
             if r then return r end
         end
+    elseif recipStr == "Device" or recipStr == "Other" then
+        if typStr == "Class" then
+            local cls = context:currentDevice().deviceClass
+            if cls and cls.parseSetup then
+                local r = cls.parseSetup(setup, context)
+                if r then return r end
+            end
+        end
     end
+
     local dev = context:currentDevice()
     if dev and dev.parseSetup then
         local r = dev.parseSetup(setup, context)
@@ -89,7 +108,7 @@ function parser.parseSetup(data, context)
     end
 
     local wValue_desc = ""
-    local WValue_field = { "wValue",    fmt("0x%04x",   wValue) }
+    local WValue_field = { "wValue",    fmt("0x%04x",   wValue), "" }
     if typStr == "Standard" then
         if (bRequest == usb_defs.CLEAR_FEATURE) or (bRequest == usb_defs.SET_FEATURE) then
             wValue_desc = fmt("Feature: %d", wValue)
@@ -114,7 +133,7 @@ function parser.parseSetup(data, context)
     elseif recipStr == "Interface" then
         wIndex_desc = fmt("Interface: %d", wIndex)
     elseif recipStr == "Endpoint" then
-        wIndex_desc = fmt("Endpoint: %d", wIndex & 0xff)
+        wIndex_desc = fmt("Endpoint: 0x%02X", wIndex & 0xff)
     end
 
     setup.html = html.makeTable{
@@ -138,6 +157,14 @@ function parser.parseData(setup, data, context)
             local r = cls.parseSetupData(setup, data, context)
             if r then return r end
         end
+    elseif setup.recip == "Device" or setup.recip == "Other" then
+        if setup.type == "Class" then
+            local cls = context:currentDevice().deviceClass
+            if cls and cls.parseSetupData then
+                local r = cls.parseSetupData(setup, data, context)
+                if r then return r end
+            end
+        end
     end
 
     local dev = context:currentDevice()
@@ -146,10 +173,18 @@ function parser.parseData(setup, data, context)
         if r then return r end
     end
 
-    if setup.type == "Standard" and (setup.bRequest == usb_defs.GET_DESCRIPTOR or bRequest == usb_defs.SET_DESCRIPTOR) then
-        if (setup.wValue >> 8) <= usb_defs.MAX_STD_DESC then
-            local descInfo = desc_parser.parse(data, context)
-            return descInfo.html
+    if setup.type == "Standard" then
+        if (setup.bRequest == usb_defs.GET_DESCRIPTOR or bRequest == usb_defs.SET_DESCRIPTOR) then
+            if (setup.wValue >> 8) <= usb_defs.MAX_STD_DESC then
+                local descInfo = desc_parser.parse(data, context)
+                return descInfo.html
+            end
+        elseif setup.bRequest == usb_defs.GET_STATUS and #data >= 2 then
+            return html.makeTable{
+                title = "Device Status",
+                header = {"Field", "Value", "Description"},
+                html.expandBitFiled(unpack("I2", data), bf.get_device_status),
+            }
         end
     end
     return "<p><h1>Get " .. #data .. " bytes data</h1></p> Display in data window"

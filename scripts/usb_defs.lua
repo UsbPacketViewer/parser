@@ -81,6 +81,10 @@ local usb_defs = {
   FUNC_DESC       = 0x24,
   HUB_DESC        = 0x29,
 
+-- Functional Descriptor Type
+  CS_INTERFACE    = 0x24,
+  CS_ENDPOINT     = 0x25,
+
   MAX_KNOWN_DESCRIPTOR = 0x29,
 
   -- map type codes to strings

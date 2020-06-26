@@ -48,6 +48,6 @@ local pcap_handler = {
     end
 }
 
-register_filehandler(pcap_handler)
+register_file_handler(pcap_handler)
 
 package.loaded["file_pcap"] = "file_pcap"

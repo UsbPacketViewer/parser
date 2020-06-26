@@ -8,8 +8,22 @@ local transactionParser = require("usb_transaction")
 local fmt = string.format
 local unpack = string.unpack
 
+local function speed_from_status(status)
+    local t = status & 0xf
+    if     t == 1 then
+        return "LOW"
+    elseif t == 2 then
+        return "FULL"
+    elseif t == 3 then
+        return "HIGH"
+    elseif t == 4 then
+        return "Super"
+    end
+    return "Unknown"
+end
+
 local function parse_token(name, color, textColor)
-    return function(pkt, ts, id)
+    return function(pkt, ts, status, id)
         local r = {}
         if #pkt ~= 3 then return gb.error("Token packet length wrong " .. #pkt) end
         local v = fmt("0x%02X", unpack("I1", pkt))
@@ -24,19 +38,20 @@ local function parse_token(name, color, textColor)
             r.addr = addr
             r.ep = ep
         end
-        local crc5 = (v >> 11) & 0x3f
+        local crc5 = (v >> 11) & 0x1f
         crc5 = fmt("0x%02X", crc5)
         r.name = name
         r.isToken = true
         r.id = id
         r.crc5 = crc5
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET) .. gb.data(r, true)
+        r.speed = speed_from_status(status)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
         return r
     end
 end
 
 local function parse_data(name, color, textColor)
-    return function(pkt, ts, id)
+    return function(pkt, ts, status, id)
         if #pkt < 3 then return gb.error("Data packet length wrong " .. #pkt) end
         local r = {}
         local v = fmt("0x%02X", unpack("I1", pkt))
@@ -48,13 +63,14 @@ local function parse_data(name, color, textColor)
         r.isData = true
         r.id = id
         r.crc16 = crc16
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET) .. gb.data(r, true)
+        r.speed = speed_from_status(status)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
         return r
     end
 end
 
 local function parse_handshake(name, color, textColor)
-    return function(pkt, ts, id)
+    return function(pkt, ts, status, id)
         if #pkt ~= 1 then return gb.error("Handshake packet length wrong " .. #pkt) end
         local v = fmt("0x%02X", unpack("I1", pkt))
         local r = {}
@@ -62,21 +78,31 @@ local function parse_handshake(name, color, textColor)
         r.name = name
         r.isHandshake = true
         r.id = id
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET) .. gb.data(r, true)
+        r.speed = speed_from_status(status)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
         return r
     end
 end
 
-local function parse_special(name, color, textColor)
-    return function(pkt, ts, id)
-        if #pkt ~= 1 then return gb.error("Special packet length wrong " .. #pkt) end
+local function parse_split(name, color, textColor)
+    return function(pkt, ts, status, id)
+        if #pkt ~= 4 then return gb.error("Special packet length wrong " .. #pkt) end
         local v = fmt("0x%02X", unpack("I1", pkt))
         local r = {}
         r.pid = v
+        local hub, port, crc = unpack("I1I1I1", pkt, 2)
         r.name = name
-        r.isSpecial = true
+        r.isSplit = true
         r.id = id
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET) .. gb.data(r, true)
+        r.addr = hub & 0x7f
+        r.isStart = (hub & 0x80) == 0
+        r.port = port & 0x7f
+        r.isLowSpeed = (port & 0x80) ~= 0
+        r.isEnd = (crc & 1) ~= 0
+        r.epType = (crc >> 1) & 0x03
+        r.crc5 = (crc >> 3) & 0x1f
+        r.speed = speed_from_status(status)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
         return r
     end
 end
@@ -98,8 +124,8 @@ local pid_map = {
     [0x87] = parse_data("DATA2"),        -- DATA2
     [0x0f] = parse_data("MDATA"),        -- MDATA
 
-    [0x3c] = parse_special("PRE"),       -- PRE
-    [0x78] = parse_special("SPLIT"),     -- SPLIT
+    [0x3c] = parse_handshake("PRE"),     -- PRE_ERR
+    [0x78] = parse_split("SPLIT"),       -- SPLIT
 }
 
 local parserContext
@@ -109,18 +135,32 @@ function parser_reset()
     parserContext.id2trans = {}
     parserContext.id2xfer = {}
     parser_init(parserContext)
+    collectgarbage()
 end
 
 parser_reset()
 
-local function on_packet(pkt, ts, id, updateGraph)
+local wait_token = nil
+local function on_packet(pkt, ts, status, id, updateGraph)
     local pid = unpack("I1", pkt)
     local parser = pid_map[pid]
     if parser then
-        local res = parser(pkt, ts, id)
-        transactionParser(ts, res, id, updateGraph, parserContext)
+        local res = parser(pkt, ts, status, id)
+        if res.pid then
+            if res.isSplit then
+                wait_token = res
+            else
+                if wait_token then
+                    wait_token.destAddr = res.addr
+                    wait_token.destEp = res.ep
+                    transactionParser(ts, wait_token, wait_token.id, updateGraph, parserContext)
+                    wait_token = nil
+                end
+                transactionParser(ts, res, id, updateGraph, parserContext)
+            end
+        end
     else
-        updateGraph( gb.wild(parse_token("Unkown")(pkt, ts, id), ts) , id, {id=id})
+        --updateGraph( gb.wild(parse_token("Unkown")(pkt, ts, status, id), ts) , id, {id=id})
     end
 end
 
@@ -135,9 +175,9 @@ local function elementId(ele)
 end
 
 function parser_append_packet(ts, nano, pkt, status, id, transId, handler, context)
+    if #pkt < 1 then return 1 end
     local timestamp = fmt("%d.%09d", ts, nano)
-    local speed = status & 0x0f
-    on_packet(pkt, timestamp, id, function(content, id, element)
+    on_packet(pkt, timestamp, status, id, function(content, id, element)
         local id1, id2, id3 = elementId(element)
         local r = handler(context, tostring(content), transId, id, id1, id2 or -1, id3 or -1)
         assert(r>=0, "update graph content fail " .. tostring(r) .. tostring(content) .. fmt("%d %d %d",id1,id2,id3) )
@@ -145,44 +185,44 @@ function parser_append_packet(ts, nano, pkt, status, id, transId, handler, conte
     return 1
 end
 
-function parser_get_info(id1, id2, id3)
+function parser_get_info_no_css(id1, id2, id3)
     id1 = id1 or -1
     id2 = id2 or -1
     id3 = id3 or -1
+    local pkt = '<h1>Token not parsed</h1><br><br>Parser Version: 20200607'
+    if id3 >= 0 then return "", pkt end
     local raw = fmt("<h1>Unknown data</h1> (%d,%d,%d)",id1,id2,id3)
-    
-    local transId = -1
-    local xferId = -1
 
-    -- didn't parse at packet level
-    if id3 > 0 then return "", "<h1>Packet not parsed</h1>" end
-    if id2 > 0 then
-        transId = id2
-    else
-        xferId = id1
-        transId = id1
-    end
-
-    if xferId > 0 then
-        local xfer = parserContext.id2xfer[id1]
-        if xfer then
-            return xfer.infoData or "",  xfer.infoHtml or raw
+    if id2>=0 then
+        local trans = parserContext.id2trans[id2]
+        if trans and trans.parent then
+            local d = trans.infoData or trans.data
+            return d or "",  trans.infoHtml or raw
+        else
+            return "", pkt
         end
     end
 
-    if transId > 0 then
-        local trans = parserContext.id2trans[transId]
+    if id1>= 0 then
+        local trans = parserContext.id2trans[id1]
         if trans then
-            local d = trans.infoData
-            if not d then
-                if #trans.pkts > 1 and trans.pkts[2].isData then
-                    d = trans.pkts[2].data
-                end
+            if trans.parent then
+                local xfer = parserContext.id2xfer[id1]
+                return xfer.infoData or "",  xfer.infoHtml or raw
+            else
+                local d = trans.infoData or trans.data
+                return d or "",  trans.infoHtml or raw
             end
-            return d or "",  trans.infoHtml or raw
+        else
+            return "", pkt
         end
     end
     return "", raw
+end
+
+function parser_get_info(id1, id2, id3)
+	local d,h = parser_get_info_no_css(id1, id2, id3)
+	return d, html.getCSS(isDark()) .. h
 end
 
 package.loaded["parser"] = "parser"

@@ -74,6 +74,6 @@ local ITI1480A_handler = {
     end
 }
 
-register_filehandler(ITI1480A_handler)
+register_file_handler(ITI1480A_handler)
 
 package.loaded["file_iti1480a"] = "file_iti1480a"

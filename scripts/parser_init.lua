@@ -104,6 +104,14 @@ local function regClass(context, classHandler, interfaceDesc)
     interfaceDesc = interfaceDesc or classHandler
     local bClass, bSubClass, bProtocol = getClassCode(interfaceDesc)
     context.classMap = context.classMap or {}
+    if context.classMap[bClass] then
+        assert(bSubClass, "Conflict class " .. tostring(bClass))
+        if context.classMap[bClass][bSubClass] then
+            assert(bProtocol, "Conflict sub class " .. tostring(bClass) .. "." .. tostring(bSubClass))
+            assert(not context.classMap[bClass][bSubClass][bProtocol], "Conflict protocol " 
+            .. tostring(bClass) .. "." .. tostring(bSubClass) .. "." .. tostring(bProtocol))
+        end
+    end
     context.classMap[bClass] = classHandler
     if bSubClass then
         context.classMap[bClass][bSubClass] = classHandler
@@ -126,8 +134,26 @@ local function getClass(context, interfaceDesc)
     return nil
 end
 
+local function regVendorProduct(context, classHandler, vid, pid)
+    context.vpMap = context.vpMap or {}
+    context.vpMap[vid] = context.vpMap[vid] or {}
+    local pre = context.vpMap[vid][pid]
+    context.vpMap[vid][pid] = classHandler
+    return pre
+end
+
+local function getVendorProduct(context, vid, pid)
+    if context.vpMap then
+        if context.vpMap[vid] then
+            return context.vpMap[pid]
+        end
+    end
+    return nil
+end
+
 local function isShortPacket(context, addr, data)
     local desc = context:getEpDesc(addr)
+    data = data or ""
     local wMaxPacketSize = nil
     if not desc then
         if addr:find("ep:0") then
@@ -161,6 +187,8 @@ local function init(context)
     context.getEpDesc = getEpDesc
     context.regClass = regClass
     context.getClass = getClass
+    context.regVendorProduct = regVendorProduct
+    context.getVendorProduct = getVendorProduct
     context.isShortPacket = isShortPacket
     context.parseSetupRequest = parseSetupRequest
     context.parseSetupData = parseSetupData

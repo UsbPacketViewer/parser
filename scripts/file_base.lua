@@ -52,7 +52,7 @@ function toHex(data)
     return res
 end
 
-function register_filehandler(fh)
+function register_file_handler(fh)
     assert(fh and fh.name, "file handler must have a name")
     if not handlers[fh.name] then
         handlers[#handlers+1] = fh

@@ -184,11 +184,22 @@ local function strFmt(v, len)
 	return tostring(v)
 end
 
+local function ipFmt(v, len)
+    local res = ""
+    local del = ""
+    for i=1,#v do
+        res = res .. del .. tonumber(v:byte(i))
+        del = "."
+    end
+    return res
+end
+
 local fmt2str = {
 	[hexFmt] = "hex",
 	[decFmt] = "dec",
 	[dataFmt] = "data",
 	[strFmt] = "str",
+    [ipFmt] = "ip"
 }
 
 local function format_comment(x)
@@ -287,6 +298,8 @@ local function parse_struct(desc, field, isBig)
 							formater = hexFmt
 						elseif f.format == "dec" then
 							formater = decFmt
+                        elseif f.format == "ip" then
+							formater = ipFmt
 						end
 					end
 				else
@@ -302,6 +315,8 @@ local function parse_struct(desc, field, isBig)
 							formater = hexFmt
 						elseif f.format == "dec" then
 							formater = decFmt
+                        elseif f.format == "ip" then
+							formater = ipFmt
 						end
 					end
 				end

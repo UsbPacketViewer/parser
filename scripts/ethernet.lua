@@ -24,6 +24,8 @@ local function get_ip_html(data, context)
         ]], {
             TotalLength = {format = "dec"},
             TTL = {format = "dec"},
+            SourceIP = {format = "ip"},
+            DestIP = {format = "ip"},
             Protocol = { [6] = "TCP", [17] = "UDP", [1] = "ICMP", [2] = "IGMP",},
         }, true)
         return ipHeader.html
@@ -45,6 +47,8 @@ local function get_arp_html(data, context)
         ]], {
             HardwareType = { [1] = "Ethernet"},
             ProtocalType = {[0x0800] = "IPv4"},
+            SenderIP = {format = "ip"},
+            TargetIP = {format = "ip"},
             OpCode = { [1] = "Request", [2] = "Reply" },
         }, true)
         return arp.html

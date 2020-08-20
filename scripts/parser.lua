@@ -189,7 +189,7 @@ function parser_get_info_no_css(id1, id2, id3)
     id1 = id1 or -1
     id2 = id2 or -1
     id3 = id3 or -1
-    local pkt = '<h1>Token not parsed</h1><br><br>Parser Version: 20200627'
+    local pkt = '<h1>Token not parsed</h1><br><br>Parser Version: 20200822'
     if id3 >= 0 then return "", pkt end
     local raw = fmt("<h1>Unknown data</h1> (%d,%d,%d)",id1,id2,id3)
 

@@ -22,6 +22,7 @@ local function speed_from_status(status)
     return "Unknown"
 end
 
+local last_token = ""
 local function parse_token(name, color, textColor)
     return function(pkt, ts, status, id)
         local r = {}
@@ -40,12 +41,13 @@ local function parse_token(name, color, textColor)
         end
         local crc5 = (v >> 11) & 0x1f
         crc5 = fmt("0x%02X", crc5)
+        last_token = name
         r.name = name
         r.isToken = true
         r.id = id
         r.crc5 = crc5
         r.speed = speed_from_status(status)
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed, "-->") .. gb.data(r, true)
         return r
     end
 end
@@ -64,7 +66,9 @@ local function parse_data(name, color, textColor)
         r.id = id
         r.crc16 = crc16
         r.speed = speed_from_status(status)
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
+        local dir_flag = "-->"
+        if last_token == "IN" then dir_flag = "<--" end
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed, dir_flag) .. gb.data(r, true)
         return r
     end
 end
@@ -79,7 +83,9 @@ local function parse_handshake(name, color, textColor)
         r.isHandshake = true
         r.id = id
         r.speed = speed_from_status(status)
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
+        local dir_flag = "<--"
+        if last_token == "IN" then dir_flag = "-->" end
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed, dir_flag) .. gb.data(r, true)
         return r
     end
 end
@@ -102,7 +108,7 @@ local function parse_split(name, color, textColor)
         r.epType = (crc >> 1) & 0x03
         r.crc5 = (crc >> 3) & 0x1f
         r.speed = speed_from_status(status)
-        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed) .. gb.data(r, true)
+        r.graph = gb.ts("Packet " .. id, ts, gb.C.PACKET, r.speed, "-->") .. gb.data(r, true)
         return r
     end
 end
@@ -174,11 +180,45 @@ local function elementId(ele)
     return ele.id, -1, -1
 end
 
+function get_xfer_id(context, xfer_id)
+    context.xfer_count_map = context.xfer_count_map or {}
+    if not context.xfer_count_map[xfer_id] then
+        context.xfer_count_val = context.xfer_count_val or 1
+        context.xfer_count_map[xfer_id] = context.xfer_count_val
+        context.xfer_count_val = context.xfer_count_val + 1
+    end
+    return context.xfer_count_map[xfer_id]
+end
+function get_xact_id(context, xact_id)
+    context.xact_count_map = context.xact_count_map or {}
+    if not context.xact_count_map[xact_id] then
+        context.xact_count_val = context.xact_count_val or 1
+        context.xact_count_map[xact_id] = context.xact_count_val
+        context.xact_count_val = context.xact_count_val + 1
+    end
+    return context.xact_count_map[xact_id]
+end
+
 function parser_append_packet(ts, nano, pkt, status, id, transId, handler, context)
     if #pkt < 1 then return 1 end
     local timestamp = fmt("%d.%09d", ts, nano)
     on_packet(pkt, timestamp, status, id, function(content, id, element)
         local id1, id2, id3 = elementId(element)
+        if id2 == -1 then
+            if content[1].color == gb.C.XFER[1] then
+                content[1].name  = content[1].name .. " (" .. get_xfer_id(parserContext, id) .. ")"
+            elseif content[1].color == gb.C.TRANS[1] then
+                content[1].name  = content[1].name .. " (" .. get_xact_id(parserContext, id) .. ")"
+            else
+                error("xfer, xact  " .. tostring(content[1].color) .. " " .. tostring(gb.C.XFER) .. " " .. tostring(gb.C.TRANS))
+            end
+            --content[1].name  = content[1].name .. " (" .. get_xfer_id(parserContext, id) .. ")"
+        elseif id3 == -1 then
+            if content[1].color == gb.C.TRANS[1] then
+               content[1].name  = content[1].name .. " (" .. get_xact_id(parserContext, id) .. ")"
+            end
+        end
+        
         local r = handler(context, tostring(content), transId, id, id1, id2 or -1, id3 or -1)
         assert(r>=0, "update graph content fail " .. tostring(r) .. tostring(content) .. fmt("%d %d %d",id1,id2,id3) )
     end)

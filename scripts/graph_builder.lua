@@ -130,11 +130,14 @@ local function makeData(name, data, color, width, textColor, sep)
     return setmetatable({d}, graph_meta)
 end
 
-local function makeTimestamp(name, ts, color, speed)
+local function makeTimestamp(name, ts, color, speed, dir_flag)
     speed = speed or "X"
     speed = speed:sub(1,1)
-    return makeData(name, ts, color or name2Color.TS[1], 180, name2Color.TS[2] or "black")
-    .. makeData("S", speed, name2Color.SPEED[1], 20, name2Color.SPEED[2], 20)
+    local res = makeData(name, ts, color or name2Color.TS[1], 180, name2Color.TS[2] or "black")
+    if dir_flag then
+        res = res .. makeData("Dir", dir_flag, name2Color.ADDR[1], 40, name2Color.ADDR[2])
+    end
+    return res .. makeData("S", speed, name2Color.SPEED[1], 20, name2Color.SPEED[2], 20)
 end
 
 local function errorData(reason)
@@ -235,10 +238,10 @@ gb.block = function(name, data, color, width, textColor, sep)
     data = data or ""
     return makeData(name, data, color, width, textColor, sep) .. gb.F_PACKET .. gb.F_ERROR
 end
-gb.ts = function(name, ts, color, speed)
+gb.ts = function(name, ts, color, speed, dir_flag)
     color = color or name2Color.TS
     assert(type(color) == "table")
-    return makeTimestamp(name, ts, color, speed)
+    return makeTimestamp(name, ts, color, speed, dir_flag)
 end
 gb.error = errorData
 gb.addr = function(addr, n)

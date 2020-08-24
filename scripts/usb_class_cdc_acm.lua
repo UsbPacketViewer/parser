@@ -163,7 +163,12 @@ function cls.parseSetupData(setup, data, context)
 end
 
 function cls.transferHandler(xfer, trans, ts, updateGraph, context)
-    local name = "CDC Line Status"
+    local isRNDIS = false
+    local desc = context:getEpDesc()
+    if desc and desc.interfaceDesc and desc.interfaceDesc.bInterfaceProtocol == 0xff then
+        isRNDIS = true
+    end
+    local name = isRNDIS and "CDC Notify data" or "CDC Line Status"
     local dataBlock = gb.data("")
     local data = ""
     if trans.data then
@@ -174,11 +179,15 @@ function cls.transferHandler(xfer, trans, ts, updateGraph, context)
     local f = gb.F_NAK
     local flagBlock = gb.block("NAK", "", gb.C.NAK)
     xfer.infoData = data
-    xfer.infoHtml = "<h1>CDC Line Status Nak</h1>"
+    xfer.infoHtml = isRNDIS and "<h1>CDC Notify data Nak</h1>"or "<h1>CDC Line Status Nak</h1>"
     if trans.state == "ACK" then
         f = gb.F_ACK
         flagBlock = gb.block("ACK", "", gb.C.ACK)
-        xfer.infoHtml = cdc_parseSetup(nil, context, data).html
+        if isRNDIS then
+            xfer.infoHtml = "<h1>CDC Notify data</h1>"
+        else
+            xfer.infoHtml = cdc_parseSetup(nil, context, data).html
+        end
     end
     local addr,ep = gb.str2addr(xfer.addrStr)
     local res = gb.ts(name, ts, gb.C.XFER, xfer.speed) .. gb.addr(addr) .. gb.endp(ep) 

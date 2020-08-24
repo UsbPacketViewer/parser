@@ -206,13 +206,14 @@ function cls.dataTransferHandler(xfer, trans, ts, updateGraph, context)
             xfer.name = "CDC RNDIS Data"
             xfer.infoHtml = "<h1>CDC RNDIS Data</h>"
             trans.parent = xfer
+            local dir = (trans.token.name or "Unknown") .. " Packet"
             if trans.state == "ACK" then
                 xfer.infoData = xfer.infoData .. (trans.data or "")
                 trans.desc = "CDC RNDIS Data"
                 if not context:isShortPacket(xfer.addrStr, trans.data) then
                     trans.infoHtml = "<h1>RNDIS partial data</h1>"
                     local addr,ep = gb.str2addr(xfer.addrStr)
-                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req("Eth Packet", "RNDIS Xfer")
+                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(dir, "Eth Packet")
                     .. gb.addr(addr) .. gb.endp(ep) .. gb.incomp()
                     .. gb.F_XFER .. gb.F_INCOMPLETE .. xfer.addrStr
                     updateGraph( res, xfer.id, xfer)
@@ -221,7 +222,7 @@ function cls.dataTransferHandler(xfer, trans, ts, updateGraph, context)
                     xfer.infoHtml  =  rndis.parseData(xfer.infoData, context)
                     trans.infoHtml = "<h1>RNDIS last data</h1>"
                     local addr,ep = gb.str2addr(xfer.addrStr)
-                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req("Eth Packet", "RNDIS Xfer")
+                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(dir, "Eth Packet")
                     .. gb.addr(addr) .. gb.endp(ep) .. gb.data(xfer.infoData or "")
                     .. gb.success("success") .. gb.F_XFER .. gb.F_ACK .. xfer.addrStr
                     updateGraph( res, xfer.id, xfer)

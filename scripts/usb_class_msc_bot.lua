@@ -1,33 +1,31 @@
 -- usb_class_msc_bot.lua
 
 -- a typical class has these functions
--- cls.parseSetup(setup, context),  update setup.html, setup.name field in setup, and return it
--- cls.parseSetupData(setup, data, context)    return a html to describe the data
+-- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
+-- cls.parse_setup_data(setup, data, context)    return a html to describe the data
 -- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
--- cls.descriptorParser(data, offset, context)   return a parsed descriptor
--- cls.getName(descriptor, context)              return a field name table
+-- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
+-- cls.get_name(descriptor, context)              return a field name table
 -- MSC class definition  https://www.usb.org/sites/default/files/usbmassbulk_10.pdf
 
 local html = require("html")
-local usb_defs = require("usb_defs")
-local gb = require("graph_builder")
+local macro_defs = require("macro_defs")
 require("usb_setup_parser")
 require("usb_register_class")
 
-local scsi = require("scsi")
+local scsi = require("decoder_scsi")
 
 local fmt = string.format
 local unpack = string.unpack
 local cls = {}
-cls.name = "MSC BOT class"
+cls.name = "MSC BOT"
 
 local BOT_GET_MAX_LUN   = 0xfe
 local BOT_RESET         = 0xff
 
-
-function cls.parseSetup(setup, context)
+function cls.parse_setup(setup, context)
     if setup.recip ~= "Interface" or setup.type ~= "Class" then
-        return nil
+        return
     end
     local bRequest_desc = "MSC Unknown Request"
     if     setup.bRequest == BOT_GET_MAX_LUN then
@@ -35,23 +33,13 @@ function cls.parseSetup(setup, context)
     elseif setup.bRequest == BOT_RESET then
         bRequest_desc = "BOT Reset"
     end
-    local reportId = setup.wValue & 0xff
-    local value = setup.wValue >> 8 
-    local wIndex_desc = fmt("Interface: %d", setup.wIndex)
     setup.name = bRequest_desc
-    setup.html = html.makeTable{
-        title = "MSC " .. bRequest_desc,
-        header = {"Field", "Value", "Description"},
-        html.expandBitFiled(setup.bmRequest, bf.bmRequest),
-        {"bRequest", fmt("%d",       setup.bRequest),  bRequest_desc  },
-        {"wValue",   fmt("%d",       setup.wValue),    ""             },
-        {"wIndex",   fmt("%d",       setup.wIndex),    wIndex_desc    },
-        {"wLength",  fmt("%d",       setup.wLength),   ""   },
-    }
-    return setup
+    setup.title = "MSC Request"
+    setup.render.title = "MSC Request " .. bRequest_desc
+    setup.render.bRequest = bRequest_desc
 end
 
-function cls.parseSetupData(setup, data, context)
+function cls.parse_setup_data(setup, data, context)
     if setup.bRequest == BOT_GET_MAX_LUN then
         local lun = unpack("I1", data)
         return "<h1>Max Logic Unit Number " .. lun .."</h1>"
@@ -59,126 +47,108 @@ function cls.parseSetupData(setup, data, context)
     return nil
 end
 
-local function bot_parser(xfer, trans, ts, updateGraph, context)
-    xfer.state = xfer.state or 0
-    xfer.name = "BOT SCSI CMD"
-    if      xfer.state == 0 then
-        -- SCSI command
-        if trans.token.name == "OUT" and trans.state == "ACK" then
-            xfer.cbw = scsi.parse_cmd(trans.data, context)
-            xfer.infoHtml = xfer.cbw.html
-            trans.infoHtml = xfer.cbw.html
-            trans.desc = "CBW"
-            if xfer.cbw.dCBWDataTransferLength > 0 then
-                xfer.state = 1
-            else
-                xfer.state = 2
-            end
-        end
-    elseif  xfer.state == 1 then
-        -- SCSI data
-        if trans.state == "ACK" then
-            xfer.data = xfer.data or ""
-            xfer.data = xfer.data .. (trans.data or "")
-            trans.desc = "SCSI Data"
-            if context:isShortPacket(xfer.addrStr, trans.data) then
-                xfer.state = 2
-            elseif #xfer.data >= xfer.cbw.dCBWDataTransferLength then
-                xfer.state = 2
-            end
-            if xfer.state == 2 then
-                local dataHtml = scsi.parse_data(xfer.cbw, xfer.data, context)
-                xfer.infoHtml = xfer.infoHtml .. dataHtml
-                trans.infoHtml = dataHtml or "<h1>BOT (last) data</h1>"
-            else
-                trans.infoHtml = "<h1>BOT partial data</h1>"
-            end
-        elseif trans.state == "NAK" then
-            trans.desc = "SCSI NAK"
-        elseif trans.state == "STALL" then
-            trans.desc = "SCSI STALL"
-            trans.infoHtml = "<h1>stall</h1>"
-            xfer.state = 2
-            xfer.status = "stall"
-        end
-    elseif  xfer.state == 2 then
-        -- SCSI status
-        if trans.token.name == "IN" then
-            if trans.state == "ACK" then
-                trans.desc = "CSW"
-                local status = scsi.parse_status(xfer.cbw, trans.data, context)
-                trans.infoHtml = status.html
-                xfer.infoHtml = xfer.infoHtml .. status.html
-                xfer.status = status.status
-                xfer.infoData = xfer.data
-                xfer.state = 4
-            elseif trans.state == "NAK" then
-                trans.desc = "SCSI NAK"
-            elseif trans.state == "STALL" then
-                trans.desc = "SCSI STALL"
-                trans.infoHtml = "<h1>stall</h1>"
-                xfer.state = 2
-                xfer.status = "stall"
-            end
-        end
+function cls.on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    local context = self:get_context(needDetail)
+    self.addr = addr
+    context.state = context.state or macro_defs.ST_CBW
+    if forceBegin then
+        context.state = macro_defs.ST_CBW
     end
-    local addr,ep = gb.str2addr(xfer.addrStr)
-    if xfer.state == 4 then
-        xfer.state = 0
-        assert(xfer.addrStr)
-        if xfer.status == "success" then
-            local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(xfer.cbw.name, "SCSI CMD")
-            .. gb.addr(addr) .. gb.endp(ep) .. gb.data(xfer.data or "")
-            .. gb.success(xfer.status) .. gb.F_XFER .. gb.F_ACK .. xfer.addrStr
-            updateGraph( res, xfer.id, xfer)
+    if #data == 31 and data:sub(1,4) == "USBC" then
+        context.state = macro_defs.ST_CBW
+    end
+    if #data == 13 and data:sub(1,4) == "USBS" then
+        context.state = macro_defs.ST_CSW
+    end
+
+    if context.state == macro_defs.ST_CBW then
+        if #data ~= 31 then
+            return macro_defs.RES_NONE
+        end
+        if ack ~= macro_defs.PID_ACK then
+            return macro_defs.RES_NONE
+        end
+        local xfer_len = unpack("I4", data, 9)
+        if xfer_len > 0 then
+            context.state = macro_defs.ST_DATA
         else
-            local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(xfer.cbw.name, "SCSI CMD")
-            .. gb.addr(addr) .. gb.endp(ep) .. gb.incomp(xfer.status, 60)
-            .. gb.F_XFER .. gb.F_ERROR .. xfer.addrStr
-            updateGraph( res, xfer.id, xfer)
+            context.state = macro_defs.ST_CSW
         end
-        return "done"
+        context.data = ""
+        context.xfer_len = xfer_len
+        if needDetail then
+            context.cbw = scsi.parse_cmd(data, self)
+            context.infoHtml = context.cbw.html
+            context.title = "BOT SCSI CMD"
+            context.name =  "SCSI CMD"
+            context.desc = context.cbw.name
+            context.status = "incomp"
+            return macro_defs.RES_BEGIN, self.upv.make_xact_res("CBW", context.cbw.html, data), self.upv.make_xfer_res(context)
+        end
+        return macro_defs.RES_BEGIN
+    elseif context.state == macro_defs.ST_DATA then
+        if ack == macro_defs.PID_STALL then
+            context.state = macro_defs.ST_CSW
+            if needDetail then
+                context.status = "stall"
+                return macro_defs.RES_MORE, self.upv.make_xact_res("SCSI Stall", "", data), self.upv.make_xfer_res(context)
+            end
+            return macro_defs.RES_MORE
+        end
+        context.data = context.data .. data
+        if self.upv:is_short_packet(addr, ep, data) then
+            context.state = macro_defs.ST_CSW
+        elseif #context.data == context.xfer_len then
+            context.state = macro_defs.ST_CSW
+        end
+        if needDetail then
+            if context.state == macro_defs.ST_CSW then
+                context.infoHtml = (context.infoHtml or "") .. scsi.parse_data(context.cbw, context.data, self)
+            end
+            return macro_defs.RES_MORE, self.upv.make_xact_res("SCSI DATA", "", data), self.upv.make_xfer_res(context)
+        end
+        return macro_defs.RES_MORE
+    elseif context.state == macro_defs.ST_CSW then
+        if ack == macro_defs.PID_STALL then
+            return macro_defs.RES_MORE
+        end
+        if ack ~= macro_defs.PID_ACK then
+            return macro_defs.RES_END
+        end
+        if #data ~= 13 then
+            return macro_defs.RES_END
+        end
+        if needDetail then
+            local status = scsi.parse_status(context.cbw, data, self)
+            context.infoHtml = (context.infoHtml or "") .. status.html
+            context.data = context.data or ""
+            context.title = context.title or ""
+            context.name = context.name or ""
+            context.desc = context.desc or ""
+            context.status = status.status
+            return macro_defs.RES_END, self.upv.make_xact_res("CSW", status.html, data), self.upv.make_xfer_res(context)
+        end
+        return macro_defs.RES_END
+    else
+        context.state = macro_defs.ST_CBW
+        return macro_defs.RES_NONE
     end
-    local n = xfer.cbw and xfer.cbw.name or "SCSI CMD"
-    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(n, "SCSI CMD") .. gb.addr(addr) .. gb.endp(ep) .. gb.incomp()
-    .. gb.F_XFER .. gb.F_INCOMPLETE .. xfer.addrStr
-    updateGraph( res, xfer.id, xfer)
-    return true
 end
 
-function cls.transferHandler(xfer, trans, ts, updateGraph, context)
-    local desc = context:getEpDesc()
-    local dev = context:currentDevice()
-    dev.botHandler = dev.botHandler or {}
-    dev.botHandler[desc.interfaceDesc.bInterfaceNumber] = 
-    dev.botHandler[desc.interfaceDesc.bInterfaceNumber] or {}
-    local botXfer = dev.botHandler[desc.interfaceDesc.bInterfaceNumber].xfer
-    if not botXfer then
-        botXfer = {}
-        botXfer.id = trans.id
-        botXfer.addrStr = trans.addrStr
-        botXfer.speed = trans.speed
-    end
-    trans.parent = botXfer
-    dev.botHandler[desc.interfaceDesc.bInterfaceNumber].xfer = botXfer
-    local res = bot_parser(botXfer, trans, ts, updateGraph, context)
-    context.id2xfer[botXfer.id] = botXfer
-    if res == "done" then
-        dev.botHandler[desc.interfaceDesc.bInterfaceNumber].xfer = nil
-    end
-    return "done"
-end
 
 cls.bInterfaceClass     = 0x08
 cls.bInterfaceSubClass  = 0x06
 cls.bInterfaceProtocol  = 0x50
+cls.endpoints = { EP_IN("Incoming Data"), EP_OUT("Outgoing Data") }
 
-function cls.getName(desc, context)
+function cls.get_name(desc, context)
     return {
         bInterfaceClass = "Mass Storage Class",
         bInterfaceSubClass = "SCSI transparent command set",
         bInterfaceProtocol = "Bulk Only Transport",
     }
 end
+
 register_class_handler(cls)
 package.loaded["usb_class_msc_bot"] = cls

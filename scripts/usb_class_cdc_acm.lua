@@ -1,43 +1,32 @@
 -- usb_class_cdc_acm.lua
 
 -- a typical class has these functions
--- cls.parseSetup(setup, context),  update setup.html, setup.name field in setup, and return it
--- cls.parseSetupData(setup, data, context)    return a html to describe the data
+-- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
+-- cls.parse_setup_data(setup, data, context)    return a html to describe the data
 -- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
--- cls.descriptorParser(data, offset, context)   return a parsed descriptor
--- cls.getName(descriptor, context)              return a field name table
+-- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
+-- cls.get_name(descriptor, context)              return a field name table
 -- HID class definition  https://www.usb.org/sites/default/files/CDC1.2_WMC1.1_012011.zip
 
 local html = require("html")
-local usb_defs = require("usb_defs")
-local gb = require("graph_builder")
-local rndis = require("rndis")
-require("usb_setup_parser")
+local macro_defs = require("macro_defs")
+local rndis = require("decoder_rndis")
+local setup_parser = require("usb_setup_parser")
 require("usb_register_class")
 
 local fmt = string.format
 local unpack = string.unpack
 local cls = {}
-cls.name = "CDC ACM class"
+cls.name = "CDC Notify Data"
 
-_G.bf = _G.bf or {}
-
-_G.bf.ACM_bmCapabilities = {
-    name = "bmCapabilities",
-    bits = 8,
-    {name = "COMM",    mask = 0x01 },
-    {name = "LINE",    mask = 0x02 },
-    {name = "BREAK",   mask = 0x04 },
-    {name = "NETWORK", mask = 0x08 },
-}
-_G.bf.wValue_cdc_controal_line_state = {
-    name = "wValue",
-    bits = 16,
-    {name = "DTR",    mask = 0x0001 },
-    {name = "RTS",    mask = 0x0002 },
-}
-
-local bf = _G.bf
+local field_cdc_control_line_state = html.create_field([[
+    struct{
+        //wValue
+        uint16_t  DTR:1;
+        uint16_t  RTS:1;
+        uint16_t  reserved:14;
+    }
+]])
 
 local req2str = {
     [0x00] = "SEND_ENCAPSULATED_COMMAND",
@@ -66,92 +55,76 @@ local shortName = {
 local CDC_RING_DETECT                  = 0x09
 local CDC_SERIAL_STATE                 = 0x20
 
+local struct_serial_state = html.create_struct([[
+    typedef struct _tusb_cdc_line_state
+    {
+        uint16_t CDC:1;
+        uint16_t DSR:1;
+        uint16_t Break:1;
+        uint16_t Ring:1;
+        uint16_t FramingError:1;
+        uint16_t ParityError:1;
+        uint16_t Overrun:1;
+        uint16_t revserved: 9;
+    }tusb_cdc_line_state_t;
+]])
 
-
-local function cdc_parseSetup(setup, context, extData)
-    if extData and #extData>=8 then
-        setup = setup or {}
-        setup.recip = "Interface"
-        setup.type = "Class"
-        setup.bmRequest = unpack("I1", extData, 1)
-        setup.bRequest  = unpack("I1", extData, 2)
-        setup.wValue    = unpack("I1", extData, 3)
-        setup.wIndex    = unpack("I1", extData, 5)
-        setup.wLength   = unpack("I1", extData, 7)
-        extData = extData:sub(9)
-    end
-    if setup.recip ~= "Interface" or setup.type ~= "Class" then
+local function cdc_parse_notify_data(self, data)
+    if #data > 8 then
+        self.is_cdc_data = true
+        local setup = setup_parser.parse_setup(data:sub(1,8), self)
+        self.is_cdc_data = false
+        if setup.bRequest == CDC_SERIAL_STATE then
+            setup.html = setup.html .. struct_serial_state:build(data:sub(9), "Serial State").html
+            return setup
+        end
         return nil
     end
-    local bRequest_desc = req2str[setup.bRequest] or "CDC Unknown Req"
-    local reportId = setup.wValue & 0xff
-    local value = setup.wValue >> 8
+end
 
-    local wValue_desc = ""
-    local extHtml = ""
-    local wValueField = {"wValue", fmt("0x%04X", setup.wValue), ""}
-    if extData then
+function cls.parse_setup(setup, context)
+    if setup.recip ~= "Interface" or setup.type ~= "Class" then
+        return
+    end
+    local bRequest_desc = req2str[setup.bRequest] or "CDC Unknown Req"
+
+    local wValueField = nil
+    if context.is_cdc_data then
         if setup.bRequest == CDC_SERIAL_STATE then
             bRequest_desc = "SERIAL_STATE"
-            extHtml = html.makeStruct(extData, "Serial State", [[
-                typedef struct _tusb_cdc_line_state
-                {
-                    uint16_t CDC:1;
-                    uint16_t DSR:1;
-                    uint16_t Break:1;
-                    uint16_t Ring:1;
-                    uint16_t FramingError:1;
-                    uint16_t ParityError:1;
-                    uint16_t Overrun:1;
-                    uint16_t revserved: 9;
-                }tusb_cdc_line_state_t;
-            ]]).html
         end
     else
         if bRequest_desc == "SET_CONTROL_LINE_STATE"then
-            wValueField = html.expandBitFiled(setup.wValue, bf.wValue_cdc_controal_line_state)
-        elseif bRequest_desc == "SEND_BREAK" then
-            --wValue_desc = fmt("Report ID %d, IDLE: %d", reportId, value )
-            wValueField = {"wValue", fmt("%d", setup.wValue), ""}
+            wValueField = field_cdc_control_line_state
         end
     end
-    local wIndex_desc = fmt("Interface: %d", setup.wIndex)
-
     setup.name = shortName[bRequest_desc] or "CDC Unknown"
-    setup.html = html.makeTable{
-        title = "CDC " .. bRequest_desc,
-        header = {"Field", "Value", "Description"},
-        html.expandBitFiled(setup.bmRequest, bf.bmRequest),
-        {"bRequest", fmt("%d",       setup.bRequest),  bRequest_desc  },
-        wValueField,
-        {"wIndex",   fmt("%d",       setup.wIndex),    wIndex_desc    },
-        {"wLength",  fmt("%d",       setup.wLength),   ""   },
-    }
-    setup.html = setup.html .. extHtml
-    return setup
+    setup.title = "CDC Request"
+    setup.render.bRequest = bRequest_desc
+    setup.render.wValue = wValueField
+    setup.render.wIndex = "Interface"
+    setup.render.title = "CDC Request " .. bRequest_desc
 end
 
-function cls.parseSetup(setup, context)
-    return cdc_parseSetup(setup, context)
-end
+local struct_line_coding = html.create_struct([[
+    struct{
+        uint32_t baudrate;
+        uint8_t  stopbits;
+        uint8_t  parity;
+        uint8_t  databits;
+    };
+]], {
+    baudrate = {format = "dec"},
+    databits = {format = "dec"},
+    stopbits = {[0] = "1 Stop", [1] = "1.5 Stop", [2] = "2 Stop"},
+    parity =   {[0] = "None", [1] = "ODD", [2] = "EVEN", [3] = "MARK", [4] = "SPACE"},
+})
 
-function cls.parseSetupData(setup, data, context)
+function cls.parse_setup_data(setup, data, context)
     local s = req2str[setup.bRequest]
     if s then 
         if s == "SET_LINE_CODING" or s == "GET_LINE_CODING" then
-            local r = html.makeStruct(data, "Line Coding", [[
-                struct{
-                    uint32_t baudrate;
-                    uint8_t  stopbits;
-                    uint8_t  parity;
-                    uint8_t  databits;
-                };
-            ]], {
-                baudrate = {format = "dec"},
-                databits = {format = "dec"},
-                stopbits = {[0] = "1 Stop", [1] = "1.5 Stop", [2] = "2 Stop"},
-                parity =   {[0] = "None", [1] = "ODD", [2] = "EVEN", [3] = "MARK", [4] = "SPACE"},
-            })
+            local r = struct_line_coding:build(data, "Line Coding")
             return r.html
         elseif s == "SEND_ENCAPSULATED_COMMAND" then
             return rndis.parseCommand(data, context)
@@ -162,84 +135,97 @@ function cls.parseSetupData(setup, data, context)
     return nil
 end
 
-function cls.transferHandler(xfer, trans, ts, updateGraph, context)
-    local isRNDIS = false
-    local desc = context:getEpDesc()
-    if desc and desc.interfaceDesc and desc.interfaceDesc.bInterfaceProtocol == 0xff then
-        isRNDIS = true
+local function rndis_on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
     end
-    local name = isRNDIS and "CDC Notify data" or "CDC Line Status"
-    local dataBlock = gb.data("")
-    local data = ""
-    if trans.data then
-        dataBlock = gb.data(trans.data)
-        data = trans.data
+    local context = self:get_context(needDetail, pid)
+    self.addr = addr
+    context.data = context.data or ""
+    if forceBegin then
+        context.data = ""
     end
-    xfer.infoData = data
-    local f = gb.F_NAK
-    local flagBlock = gb.block("NAK", "", gb.C.NAK)
-    xfer.infoData = data
-    xfer.infoHtml = isRNDIS and "<h1>CDC Notify data Nak</h1>"or "<h1>CDC Line Status Nak</h1>"
-    if trans.state == "ACK" then
-        f = gb.F_ACK
-        flagBlock = gb.block("ACK", "", gb.C.ACK)
-        if isRNDIS then
-            xfer.infoHtml = "<h1>CDC Notify data</h1>"
-        else
-            xfer.infoHtml = cdc_parseSetup(nil, context, data).html
+    local endMark    = self.upv:is_short_packet(addr, ep, data) and macro_defs.RES_END or macro_defs.RES_NONE
+    local begindMark = #context.data == 0 and macro_defs.RES_BEGIN or macro_defs.RES_NONE
+    context.data = context.data .. data
+    if #context.data >= 4096 then
+        endMark = macro_defs.RES_END
+    end
+
+    local res = endMark | begindMark
+    if res == macro_defs.RES_NONE then res = macro_defs.RES_MORE end
+
+    if needDetail then
+        context.data = (context.data or "") .. data
+        context.status = "incomp"
+        context.title = "CDC Rndis DATA"
+        context.name = "CDC DATA"
+        context.desc = "Rndis DATA"
+        context.infoHtml = ""
+        if endMark == macro_defs.RES_END then
+            context.infoHtml  =  rndis.parse_data(context.data, context)
+            context.status = "success"
         end
+        local xfer_res = self.upv.make_xfer_res(context)
+        if endMark == macro_defs.RES_END then
+            context.data = ""
+        end
+        return res, self.upv.make_xact_res("CDC Rndis Data", "", data), xfer_res
     end
-    local addr,ep = gb.str2addr(xfer.addrStr)
-    local res = gb.ts(name, ts, gb.C.XFER, xfer.speed) .. gb.addr(addr) .. gb.endp(ep) 
-             .. dataBlock .. flagBlock
-             .. gb.F_XFER .. f .. xfer.addrStr
-    trans.infoHtml = xfer.infoHtml
-    updateGraph( res, xfer.id, xfer)
-    return "done"
+    if endMark ~= 0 then
+        context.data = ""
+    end
+    return res
 end
 
-function cls.dataTransferHandler(xfer, trans, ts, updateGraph, context)
-    local desc = context:getEpDesc()
-    if desc and desc.dataInterface then
-        if desc.dataInterface.bInterfaceProtocol == 0xff then
-            xfer.infoData = xfer.infoData or ""
-            xfer.name = "CDC RNDIS Data"
-            xfer.infoHtml = "<h1>CDC RNDIS Data</h>"
-            trans.parent = xfer
-            local dir = (trans.token.name or "Unknown") .. " Packet"
-            if trans.state == "ACK" then
-                xfer.infoData = xfer.infoData .. (trans.data or "")
-                trans.desc = "CDC RNDIS Data"
-                if not context:isShortPacket(xfer.addrStr, trans.data) then
-                    trans.infoHtml = "<h1>RNDIS partial data</h1>"
-                    local addr,ep = gb.str2addr(xfer.addrStr)
-                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(dir, "Eth Packet")
-                    .. gb.addr(addr) .. gb.endp(ep) .. gb.incomp()
-                    .. gb.F_XFER .. gb.F_INCOMPLETE .. xfer.addrStr
-                    updateGraph( res, xfer.id, xfer)
-                    return true
-                else
-                    xfer.infoHtml  =  rndis.parseData(xfer.infoData, context)
-                    trans.infoHtml = "<h1>RNDIS last data</h1>"
-                    local addr,ep = gb.str2addr(xfer.addrStr)
-                    local res = gb.ts(xfer.name, ts, gb.C.XFER, xfer.speed) .. gb.req(dir, "Eth Packet")
-                    .. gb.addr(addr) .. gb.endp(ep) .. gb.data(xfer.infoData or "")
-                    .. gb.success("success") .. gb.F_XFER .. gb.F_ACK .. xfer.addrStr
-                    updateGraph( res, xfer.id, xfer)
-                    return "done"
-                end
-            end
-            return true
-            --trans.desc = "CDC RNDIS Data"
-            --trans.infoHtml = rndis.parseData(trans.data, context)
-            --trans.parent = nil
-            --return "done"
-        end
+local function data_on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
     end
-    trans.desc = "CDC Data"
-    trans.infoHtml = "<h1>CDC Data</h1>"
-    trans.parent = nil
-    return "done"
+    self.addr = addr
+    if needDetail then
+        local context = {}
+        context.data = data
+        context.status = "success"
+        context.title = "CDC RAW DATA"
+        context.name = "CDC DATA"
+        context.desc = "CDC DATA"
+        context.infoHtml = "Raw Data"
+        return macro_defs.RES_BEGIN_END, self.upv.make_xact_res("CDC Raw Data", "Raw Data", data), self.upv.make_xfer_res(context)
+    end
+    return macro_defs.RES_BEGIN_END
+end
+
+function cls.on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if pid ~= macro_defs.PID_IN then
+        return macro_defs.RES_NONE
+    end
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
+    end
+    if needDetail then
+        local status = "success"
+        local info = cdc_parse_notify_data(self, data)
+        local html = ""
+        if not info then
+            status = "error"
+            html = "Wrong line status data"
+        else
+            html = info.html
+        end
+        return macro_defs.RES_BEGIN_END, self.upv.make_xact_res("Hub Notify", html, data), self.upv.make_xfer_res({
+            title = "CDC Line status",
+            name  = "CDC Notify",
+            desc  = "Line Sts",
+            status = status,
+            infoHtml = html,
+            data = data,
+        })
+    end
+    return macro_defs.RES_BEGIN_END
 end
 
 -- 0x00 -- Header Functional Descriptor, which marks the beginning of the concatenated set of functional descriptors for the interface.
@@ -250,51 +236,82 @@ end
 -- 0x05 -- Telephone Call and Line State Reporting Capabilities Functional Descriptor.
 -- 0x06 -- Union Functional Descriptor
 
-function cls.descriptorParser(data, offset, context)
+_G.cdc_interface_desc_type = {
+    [0x00] = "Header",
+    [0x01] = "Call Management",
+    [0x02] = "Abstract Control Management",
+    [0x03] = "Direct Line Management",
+    [0x04] = "Telephone Ringer",
+    [0x05] = "Telephone Call and Line State Reporting Capabilities",
+    [0x06] = "Union",
+}
 
-    if unpack("I1", data, offset + 1) ~= usb_defs.CS_INTERFACE then
+local function build_desc(name, info)
+    local builder = html.create_struct(info)
+    return function(data, offset, context)
+        return builder:build(data:sub(offset), name)
+    end
+end
+
+local cdc_desc = {
+    [0x00] = build_desc("Header Functional Descriptor", [[
+        struct{
+            uint8_t   bLength;
+            uint8_t   bDescriptorType;      // CS_INTERFACE
+            uint8_t   bDescriptorSubtype;   // _G.cdc_interface_desc_type
+            uint16_t  bcdCDC;
+        }
+    ]]),
+    [0x01] = build_desc("Call Management Functional Descriptor", [[
+        struct{
+            uint8_t   bLength;
+            uint8_t   bDescriptorType;      // CS_INTERFACE
+            uint8_t   bDescriptorSubtype;   // _G.cdc_interface_desc_type
+            uint8_t   bmCapabilities;
+            uint8_t   bDataInterface;
+        }
+    ]]),
+    [0x02] = build_desc("Abstract Control Management Functional Descriptor", [[
+        struct{
+            uint8_t   bLength;
+            uint8_t   bDescriptorType;      // CS_INTERFACE
+            uint8_t   bDescriptorSubtype;   // _G.cdc_interface_desc_type
+            // bmCapabilities
+            uint8_t   COMM:1;
+            uint8_t   LINE:1;
+            uint8_t   BREAK:1;
+            uint8_t   NETWORK:1;
+            uint8_t   reserved:4;
+        }
+    ]]),
+    [0x06] = build_desc("Union Functional Descriptor", [[
+        struct{
+            uint8_t   bLength;
+            uint8_t   bDescriptorType;      // CS_INTERFACE
+            uint8_t   bDescriptorSubtype;   // _G.cdc_interface_desc_type
+            uint8_t   bMasterInterface;
+            uint8_t   bSlaveInterface0;
+        }
+    ]]),
+}
+
+function cls.descriptor_parser(data, offset, context)
+    if unpack("I1", data, offset + 1) ~= macro_defs.CS_INTERFACE then
         return nil
     end
-    local desc = {}
     local subType = unpack("I1", data, offset + 2)
-    desc.bLength =            unpack("I1", data, offset)
-    desc.bDescriptorType =    unpack("I1", data, offset + 1)
-    desc.bDescriptorSubtype = subType
-    local tb = {}
-    tb.header = {"Field", "Value", "Description"}
-    tb[#tb+1] = { "bLength", desc.bLength, ""}
-    tb[#tb+1] = { "bDescriptorType", desc.bDescriptorType, "CS_INTERFACE" }
-    tb[#tb+1] = { "bDescriptorSubtype", desc.bDescriptorSubtype, "" }
-    if     subType == 0x00 then
-        tb.title = "Header Functional Descriptor"
-        local ver = unpack("I2", data, offset + 3)
-        tb[#tb+1] = { "bcdCDC", fmt("0x%04x", ver), "" }
-    elseif subType == 0x01 then
-        tb.title = "Call Management Functional Descriptor"
-        local cap = unpack("I1", data, offset + 3)
-        local bData = unpack("I1", data, offset + 4)
-        tb[#tb+1] = { "bmCapabilities", fmt("0x%02x", cap), "" }
-        tb[#tb+1] = { "bDataInterface", fmt("%d", bData), "" }
-    elseif subType == 0x02 then
-        tb.title = "Abstract Control Management Functional Descriptor"
-        local cap = unpack("I1", data, offset + 3)
-         tb[#tb+1] = html.expandBitFiled(cap, bf.ACM_bmCapabilities)
-    elseif subType == 0x06 then
-        tb.title = "Union Functional Descriptor"
-        local bMasterInterface = unpack("I1", data, offset + 3)
-        local bSlaveInterface0 = unpack("I1", data, offset + 4)
-        tb[#tb+1] = { "bMasterInterface", fmt("%d", bMasterInterface), "" }
-        tb[#tb+1] = { "bSlaveInterface0", fmt("%d", bSlaveInterface0), "" }
-    else
-        return nil
-    end
-    desc.html = html.makeTable(tb)
-    return desc
+    return cdc_desc[subType] and cdc_desc[subType](data, offset, context)
 end
 
 cls.bInterfaceClass     = 2
 cls.bInterfaceSubClass  = 2
 cls.bInterfaceProtocol  = nil
+cls.endpoints = { EP_IN("Line status") }
+cls.iad = {
+    bInterfaceClass     = 2,
+    bInterfaceSubClass  = 2,
+    bInterfaceProtocol  = nil,
+}
 
 local protoName = {
     [0x00] ="No class specific" , --  USB specification No class specific protocol required
@@ -309,7 +326,7 @@ local protoName = {
     [0xFF] ="Vendor-specific"   , --  USB Specification Vendor-specific
     --08-FDh                RESERVED (future use)
 }
-function cls.getName(desc, context)
+function cls.get_name(desc, context)
     local name = protoName[desc.bInterfaceProtocol] or "RESERVED"
     return {
         bInterfaceClass = "CDC",
@@ -317,5 +334,53 @@ function cls.getName(desc, context)
         bInterfaceProtocol = name,
     }
 end
+
 register_class_handler(cls)
+
+local rndis_data_cls = {}
+for k,v in pairs(cls) do
+    rndis_data_cls[k] = v
+end
+rndis_data_cls.name = "CDC Rndis Data"
+rndis_data_cls.bInterfaceClass     = 10
+rndis_data_cls.bInterfaceSubClass  = nil
+rndis_data_cls.bInterfaceProtocol  = nil
+rndis_data_cls.iad = {
+    bInterfaceClass     = 2,
+    bInterfaceSubClass  = 2,
+    bInterfaceProtocol  = 0xff,
+}
+rndis_data_cls.endpoints = { EP_IN("Incoming Data"), EP_OUT("Outgoning Data") }
+rndis_data_cls.on_transaction = rndis_on_transaction
+
+function rndis_data_cls.get_name(desc, context)
+    return {
+        bInterfaceClass = "CDC Rndis Data",
+    }
+end
+register_class_handler(rndis_data_cls)
+
+local raw_data_cls = {}
+for k,v in pairs(cls) do
+    raw_data_cls[k] = v
+end
+raw_data_cls.name = "CDC Raw Data"
+raw_data_cls.bInterfaceClass     = 10
+raw_data_cls.bInterfaceSubClass  = nil
+raw_data_cls.bInterfaceProtocol  = nil
+raw_data_cls.iad = {
+    bInterfaceClass     = 2,
+    bInterfaceSubClass  = 2,
+    bInterfaceProtocol  = nil,
+}
+raw_data_cls.endpoints = { EP_IN("Incoming Data"), EP_OUT("Outgoning Data") }
+raw_data_cls.on_transaction = data_on_transaction
+
+function raw_data_cls.get_name(desc, context)
+    return {
+        bInterfaceClass = "CDC Raw Data",
+    }
+end
+register_class_handler(raw_data_cls)
+
 package.loaded["usb_class_cdc_acm"] = cls

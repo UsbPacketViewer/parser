@@ -1,81 +1,22 @@
 -- usb_class_hid.lua
 
 -- a typical class has these functions
--- cls.parseSetup(setup, context),  update setup.html, setup.name field in setup, and return it
--- cls.parseSetupData(setup, data, context)    return a html to describe the data
+-- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
+-- cls.parse_setup_data(setup, data, context)    return a html to describe the data
 -- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
--- cls.descriptorParser(data, offset, context)   return a parsed descriptor
--- cls.getName(descriptor, context)              return a field name table
+-- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
+-- cls.get_name(descriptor, context)              return a field name table
 -- HID class definition  https://www.usb.org/sites/default/files/documents/hid1_11.pdf
 
 local html = require("html")
-local usb_defs = require("usb_defs")
-local gb = require("graph_builder")
+local macro_defs = require("macro_defs")
 require("usb_setup_parser")
 require("usb_register_class")
 
 local fmt = string.format
 local unpack = string.unpack
 local cls = {}
-cls.name = "HID class"
-
-local modStr = {
-    "Left Ctrl", "Left Shift", "Left Alt", "Left Meta",
-    "Right Ctrl", "Right Shift", "Right Alt", "Right Meta",
-}
-
-_G.bf = _G.bf or {}
-
-_G.bf.wValue_hid_report = {
-    name = "wValue",
-    bits = 16,
-    {name = "[8..15] Type", mask = 0xff00,
-        [1] = "Input Report",
-        [2] = "Output Report",
-        [3] = "Feature Report",
-    },
-    {name = "[0..7] Report ID", mask = 0x00ff},
-}
-
-_G.bf.wValue_hid_idle = {
-    name = "wValue",
-    bits = 16,
-    {name = "[8..15] Idle Value", mask = 0xff00},
-    {name = "[0..7] Report ID", mask = 0x00ff},
-}
-
-_G.bf.key_modifier = {
-    name = "Modifier",
-    { mask = 1<<0, [0] = "Left Ctrl Released",  [1] = "Left Ctrl Pressed",    },
-    { mask = 1<<1, [0] = "Left Shift Released", [1] = "Left Shift Pressed",   },
-    { mask = 1<<2, [0] = "Left Alt Released",   [1] = "Left Alt Pressed",     },
-    { mask = 1<<3, [0] = "Left Meta Released",  [1] = "Left Meta Pressed",    },
-    { mask = 1<<4, [0] = "Right Ctrl Released", [1] = "Right Ctrl Pressed",   },
-    { mask = 1<<5, [0] = "Right Shift Released",[1] = "Right Shift Pressed",  },
-    { mask = 1<<6, [0] = "Right Alt Released",  [1] = "Right Alt Pressed",    },
-    { mask = 1<<7, [0] = "Right Meta Released", [1] = "Right Meta Pressed",   },
-}
-
-_G.bf.mouse_button = {
-    name = "Button",
-    { mask = 1<<0, [0] = "Button 1 released", [1] = "Button 1 pressed"  },
-    { mask = 1<<1, [0] = "Button 2 released", [1] = "Button 2 pressed"  },
-    { mask = 1<<2, [0] = "Button 3 released", [1] = "Button 3 pressed"  },
-}
-
-local bf = _G.bf
-
-local function mod2str(mod)
-    local r = ""
-    local sep = ""
-    for i=1,8 do
-        if (mod & (1<<(i-1))) ~= 0 then
-            r = r .. sep .. modStr[i]
-            sep = ", "
-        end
-    end
-    return #r < 1 and "None" or r
-end
+cls.name = "HID"
 
 local KEY_A = 0x04
 local KEY_Z = 0x1d
@@ -101,6 +42,53 @@ local function key2str(key)
     return "[unknown]"
 end
 
+_G.hid_key_name = key2str
+
+local field_wValue_hid_report = html.create_field([[
+    struct{
+        // wValue
+        uint16_t ReportID:8;
+        uint16_t ReportType:8; // {[1] = "Input", [2] = "Output", [3] = "Feature"}
+    }
+]])
+
+local field_wValue_hid_idle = html.create_field([[
+    struct{
+        // wValue
+        uint16_t ReportID:8;
+        uint16_t IdleValue:8;
+    }
+]])
+
+local struct_boot_mouse_data = html.create_struct([[
+    struct{
+        uint8_t  button1:1;  // {[0]="Released", [1]= "pressed"}
+        uint8_t  button2:1;  // {[0]="Released", [1]= "pressed"}
+        uint8_t  button3:1;  // {[0]="Released", [1]= "pressed"}
+        uint8_t  reserved:5;
+        int8_t   x;          // {format = "dec"}
+        int8_t   y;          // {format = "dec"}
+        uint8_t  reserved;
+    }
+]])
+
+local struct_boot_key_data = html.create_struct([[
+    struct{
+        // Modifier
+        uint8_t  LeftCtrl:1;    // {[0]="Released", [1]= "pressed"}
+        uint8_t  LeftShift:1;   // {[0]="Released", [1]= "pressed"}
+        uint8_t  LeftAlt:1;     // {[0]="Released", [1]= "pressed"}
+        uint8_t  LeftMeta:1;    // {[0]="Released", [1]= "pressed"}
+        uint8_t  RightCtrl:1;   // {[0]="Released", [1]= "pressed"}
+        uint8_t  RightShift:1;  // {[0]="Released", [1]= "pressed"}
+        uint8_t  RightAlt:1;    // {[0]="Released", [1]= "pressed"}
+        uint8_t  RightMeta:1;   // {[0]="Released", [1]= "pressed"}
+        uint8_t  reserved;
+        {
+        uint8_t  key;           // _G.hid_key_name
+        }[6];
+    }
+]])
 
 local req2str = {
     [1] = "GET_REPORT",
@@ -111,184 +99,121 @@ local req2str = {
     [11] = "SET_PROTOCOL",
 }
 
-local rpt2str = {
-    [1] = "Input Report",
-    [2] = "Output Report",
-    [3] = "Feature Report",
-}
-
-function cls.parseSetup(setup, context)
+function cls.parse_setup(setup, context)
     if setup.recip ~= "Interface" or setup.type ~= "Class" then
-        return nil
+        return
     end
     local bRequest_desc = req2str[setup.bRequest] or "HID Unknown Req"
-    local reportId = setup.wValue & 0xff
-    local value = setup.wValue >> 8
-
-    local wValue_desc = ""
-    local wValueField = {"wValue", fmt("0x%04X", setup.wValue), ""}
+    local wValueField = nil
     if bRequest_desc == "GET_REPORT" or bRequest_desc == "SET_REPORT" then
-        --wValue_desc = fmt("Report ID %d, ", reportId ) .. (rpt2str[value] or "Unknown")
-        wValueField = html.expandBitFiled(setup.wValue, bf.wValue_hid_report, true)
+        wValueField = field_wValue_hid_report
     elseif bRequest_desc == "GET_IDLE" or bRequest_desc == "SET_IDLE" then
-        --wValue_desc = fmt("Report ID %d, IDLE: %d", reportId, value )
-        wValueField = html.expandBitFiled(setup.wValue, bf.wValue_hid_idle, true)
+        wValueField = field_wValue_hid_idle
     elseif bRequest_desc == "GET_PROTOCOL" or bRequest_desc == "SET_PROTOCOL" then
     end
-    local wIndex_desc = fmt("Interface: %d", setup.wIndex)
-
     setup.name = bRequest_desc
-    setup.html = html.makeTable{
-        title = "HID " .. bRequest_desc,
-        header = {"Field", "Value", "Description"},
-        html.expandBitFiled(setup.bmRequest, bf.bmRequest),
-        {"bRequest", fmt("%d",       setup.bRequest),  bRequest_desc  },
-        wValueField,
-        {"wIndex",   fmt("%d",       setup.wIndex),    wIndex_desc    },
-        {"wLength",  fmt("%d",       setup.wLength),   ""   },
-    }
-    return setup
+    setup.title = "HID Request"
+    setup.render.title = "HID Req " .. bRequest_desc
+    setup.render.bRequest = bRequest_desc
+    setup.render.wValue = wValueField
+    setup.render.wIndex = "Interface"
 end
 
-function cls.parseSetupData(setup, data, context)
+function cls.parse_setup_data(setup, data, context)
     local s = req2str[setup.bRequest]
     if s then 
         return "<h1>" .. s .." data </h1>"
     end
-    if (setup.bRequest == usb_defs.GET_DESCRIPTOR) and ((setup.wValue>>8) == usb_defs.REPORT_DESC) then
+    if (setup.bRequest == macro_defs.GET_DESCRIPTOR) and ((setup.wValue>>8) == macro_defs.REPORT_DESC) then
         return "<h1>Report descriptor </h1><br>Todo: parse it to analyze endpoint data"
     end
     return nil
 end
 
-function cls.transferHandler(xfer, trans, ts, updateGraph, context)
-    local desc = context:getEpDesc()
-    local name = "HID data"
-    local dataBlock = gb.data("")
-    local data = ""
-    if trans.data then
-        dataBlock = gb.data(trans.data)
-        data = trans.data
+local function key_on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if pid ~= macro_defs.PID_IN then
+        return macro_defs.RES_NONE
     end
-    xfer.infoData = data
-    local f = gb.F_NAK
-    local flagBlock = gb.block("NAK", "", gb.C.NAK)
-    xfer.infoHtml = "<h1>HID Nak</h1>"
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
+    end
 
-    if trans.state == "ACK" then
-        if      desc.interfaceDesc.bInterfaceProtocol == 1 then
-            name = "HID Key"
-            local kid = -1
-            function decode(t)
-                local kc = 0
-                local kd = "Trancated"
-                local n = "Reserved"
-                if #data > kid+1 then
-                    kc = unpack("I1", data, kid+2)
-                    if t == "key" then
-                        kd = key2str(kc)
-                        n = "Key" .. kid
-                    elseif t == "mod" then
-                        n = "Modifier"
-                        kd = mod2str(kc)
-                        n = html.expandBitFiled(kc, bf.key_modifier)
-                    else
-                        kd = ""
-                    end
-                    kc = fmt("0x%02X", kc)
-                end
-                kid = kid + 1
-                if type(n) == "table" then
-                    return n
-                end
-                return { n,  kc, kd  }
-            end
-            xfer.infoHtml = html.makeTable{
-                title = "Maybe Boot Keyboard",
-                header = {"Name", "Value", "Description"},
-                decode("mod"),
-                decode(),
-                decode("key"),
-                decode("key"),
-                decode("key"),
-                decode("key"),
-                decode("key"),
-                decode("key"),
-            }
-        elseif  desc.interfaceDesc.bInterfaceProtocol == 2 then
-            name = "HID Mouse"
-            local btnField = {"Button", "Truncated", ""}
-            if #data > 0 then
-                btnField = html.expandBitFiled( unpack("i1", data, 1), bf.mouse_button)
-            end
-            xfer.infoHtml = html.makeTable{
-                title = "Maybe Boot Mouse",
-                header = {"Name", "Value", "Description"},
-                btnField,
-                { "x",        #data>1 and unpack("i1", data, 2) or "Truncated", "" },
-                { "y",        #data>2 and unpack("i1", data, 3) or "Truncated", "" },
-            }
-        else
-            -- HID data, describe by report descriptor
-            name = "HID Data"
-            xfer.infoHtml = "<h1>HID data</h1>"
-        end
-        f = gb.F_ACK
-        flagBlock = gb.block("success", "", gb.C.ACK)
+    if needDetail then
+        local infoHtml = struct_boot_key_data:build(data, "Maybe Boot Keyboard").html
+        return macro_defs.RES_BEGIN_END, self.upv.make_xact_res("HID Key", infoHtml, data), self.upv.make_xfer_res({
+            title = "HID Key Data",
+            name  = "HID Data",
+            desc  = "Boot Keyboard",
+            status = "success",
+            infoHtml = infoHtml,
+            data = data,
+        })
     end
-    local addr,ep = gb.str2addr(xfer.addrStr)
-    local res = gb.ts(name, ts, gb.C.XFER, xfer.speed) .. gb.addr(addr) .. gb.endp(ep) .. dataBlock .. flagBlock
-             .. gb.F_XFER .. f .. xfer.addrStr
-    trans.infoHtml = xfer.infoHtml
-    updateGraph( res, xfer.id, xfer)
-    -- HID alway done in a single transaction except in hybird mode
-    return "done"
+    return macro_defs.RES_BEGIN_END
 end
 
-function cls.descriptorParser(data, offset, context)
-
-    if unpack("I1", data, offset + 1) ~= usb_defs.HID_DESC then
-        return nil
+local function mouse_on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if pid ~= macro_defs.PID_IN then
+        return macro_defs.RES_NONE
     end
-    local tb = {}
-    local desc = {}
-    tb.title = "HID Descriptor"
-    tb.header = {"Field", "Value", "Description"}
-    desc.bLength =          unpack("I1", data, offset)
-    desc.bDescriptorType =  unpack("I1", data, offset + 1)
-    desc.bcdHID          =  unpack("I2", data, offset + 2)
-    desc.bCountryCode    =  unpack("I1", data, offset + 4)
-    desc.bNumDescriptors =  unpack("I1", data, offset + 5)
-
-    tb[#tb+1] = { "bLength", desc.bLength, ""}
-    tb[#tb+1] = { "bDescriptorType", desc.bDescriptorType, "" }
-    tb[#tb+1] = { "bcdHID", fmt("0x%04X", desc.bcdHID), "" }
-    tb[#tb+1] = { "bCountryCode", desc.bCountryCode, "" }
-    tb[#tb+1] = { "bNumDescriptors", desc.bNumDescriptors, "" }
-
-    for i=1, desc.bNumDescriptors do
-        local t = unpack("I1", data, offset + 3 + i*3)
-        desc["bDescriptorType" .. i] = t
-        desc["wDescriptorLength" .. i] = unpack("I2", data, offset + 4 + i*3)
-        if t == 0x22 then
-            t = "Report Descriptor"
-        elseif t == 0x23 then
-            t = "Physical Descriptor"
-        else
-            t = "Unknwon"
-        end
-        tb[#tb+1] = { "bDescriptorType" .. i, desc["bDescriptorType" .. i], t}
-        tb[#tb+1] = { "wDescriptorLength"..i, desc["wDescriptorLength" .. i], ""}
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
     end
-    desc.html = html.makeTable(tb)
-    return desc
+    if needDetail then
+        local infoHtml = struct_boot_mouse_data:build(data, "Maybe Boot Mouse").html
+        return macro_defs.RES_BEGIN_END, self.upv.make_xact_res("HID Mouse",infoHtml,data), self.upv.make_xfer_res({
+            title = "HID Mouse Data",
+            name  = "HID Data",
+            desc  = "Boot Mouse",
+            status = "success",
+            infoHtml = infoHtml,
+            data = data,
+        })
+    end
+    return macro_defs.RES_BEGIN_END
 end
+
+local function hid_on_transaction(self, param, data, needDetail, forceBegin)
+    local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
+    if pid ~= macro_defs.PID_IN then
+        return macro_defs.RES_NONE
+    end
+    if ack ~= macro_defs.PID_ACK then
+        return macro_defs.RES_NONE
+    end
+    if needDetail then
+        local infoHtml = "<h1>HID data</h1><p>Need decode with report descriptor"
+        return macro_defs.RES_BEGIN_END, self.upv.make_xact_res("Hub Notify", infoHtml, data), self.upv.make_xfer_res({
+            title = "HID Data",
+            name  = "HID Data",
+            desc  = "HID Data",
+            status = "success",
+            infoHtml = infoHtml,
+            data = data,
+        })
+    end
+    return macro_defs.RES_BEGIN_END
+end
+
+local function xunpack(fmt, data, index, length)
+    index = index or 1
+    length = length or 1
+    if #data + 1 < index + length then
+        return 0
+    end
+    return unpack(fmt, data, index)
+end
+
+--function cls.descriptor_parser = nil
 
 cls.bInterfaceClass     = 3
 cls.bInterfaceSubClass  = nil
 cls.bInterfaceProtocol  = nil
+cls.endpoints = { EP_IN("HID Data") }
 
-function cls.getName(desc, context)
+function cls.get_name(desc, context)
     local subName = "Reserved"
     if      desc.bInterfaceSubClass == 0  then
         subName = "No SubClass"
@@ -309,5 +234,21 @@ function cls.getName(desc, context)
         bInterfaceProtocol = bootName,
     }
 end
-register_class_handler(cls)
+
+local function build_hid_class(name, handler, subClass, protool)
+    local r = {}
+    for k,v in pairs(cls) do
+        r[k] = v
+    end
+    r.name = name
+    r.on_transaction = handler
+    r.bInterfaceSubClass = subClass
+    r.bInterfaceProtocol = protool
+    return r
+end
+
+register_class_handler(build_hid_class("HID Boot Key", key_on_transaction, 1, 1))
+register_class_handler(build_hid_class("HID Boot Mouse", mouse_on_transaction, 1, 2))
+register_class_handler(build_hid_class("HID User", hid_on_transaction, nil, nil))
+
 package.loaded["usb_class_hid"] = cls

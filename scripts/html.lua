@@ -5,30 +5,6 @@ local util = require("util")
 
 local r = {}
 
-r.getCSS = function(dark)
-	if dark then
-return [[
-<style type="text/css">
-h1,td{color:lightgray;}
-tr#odd{background-color: black;}
-tr#even {background-color: #333333;}
-tr#head{background-color:#003366;}
-table { border-collapse: collapse; } 
-td{ border: 2px solid lightgray }
-</style>]]
-	else
-return [[
-<style type="text/css">
-h1,td{color:black;}
-tr#odd{background-color: white;}
-tr#even {background-color: lightgray;}
-tr#head{background-color:#66B3FF;}
-table { border-collapse: collapse; } 
-td{ border: 2px solid darkgray }
-</style>]]
-	end
-end
-
 r.make_table = function(t)
 	local tw = nil
 	if t.width then
@@ -342,24 +318,25 @@ local function build_struct(info, data, name)
 				end
 				n_suffix = tostring(rep_info[v.rep].count)
 			end
-			local n, formater, size, big, fields = v[1], v[2], v[3], v[4], v[5]
+			local n, formater, size, big, fields, type_size = v[1], v[2], v[3], v[4], v[5], v[6]
 			local name_suffix = ""
 			if type(size) == 'function' then
 				size = size(res, data, offset)
 				name_suffix = "[" .. tostring(size) .. "]"
 			end
+			local data_size = size * (type_size or 1)
 			name_suffix = name_suffix .. n_suffix
-			local t =  data:sub(offset, offset+size-1)--  unpack(unpack_fmt, data, offset)
+			local t =  data:sub(offset, offset+data_size-1)--  unpack(unpack_fmt, data, offset)
 			local prefix = big and ">" or "<"
-			local truncated = #data + 1 < offset + size
+			local truncated = #data + 1 < offset + data_size
 			local desc = ""
 			local oldTV = t
 			t = 0
 			if not truncated then
 				if formater == hexFmt or formater == decFmt then
-					t = unpack(prefix .."I"..size, data, offset)
+					t = unpack(prefix .."I"..data_size, data, offset)
 				elseif formater == signedFmt then
-					t = unpack(prefix .."i"..size, data, offset)
+					t = unpack(prefix .."i"..data_size, data, offset)
 				end
 			end
             if type(fields) == "table" then
@@ -369,10 +346,10 @@ local function build_struct(info, data, name)
 			elseif type(fields) == "function" then
 				desc = fields(t)
 			end
-			local val_str = truncated and "&lt;Truncated&gt;" or formater(oldTV, size, big)
+			local val_str = truncated and "&lt;Truncated&gt;" or formater(oldTV, data_size, big)
 			tb[#tb+1] = {n .. name_suffix, val_str, desc}
             res[n] = t
-			offset = offset + size
+			offset = offset + data_size
 			if v.rep and v.rep.stop == i then
 				if rep_info[v.rep].count >= v.rep.size(res, data, offset) then
 					rep_info[v.rep] = nil
@@ -481,8 +458,8 @@ local function create_struct(desc, field, isBig)
 				local f = field[n] or table_comment
 				local formater = dataFmt
 				local size = 0
+				local type_size = type2size[t] or 1
 				if array then
-					local type_size = type2size[t]
 					if type(array) == "string" then
 						size = dynamic_get_size(array)
 					end
@@ -516,8 +493,7 @@ local function create_struct(desc, field, isBig)
 					end
 				else
 					formater = hexFmt
-					array = 1
-					size = type2size[t]*array
+					size = 1
 					if f and type(f) == "table" and f.format then
 						if f.format == "string" or f.format == "str" then
 							formater = strFmt
@@ -536,7 +512,7 @@ local function create_struct(desc, field, isBig)
 				end
 				local fieldBig = isBig
 				if f and type(f) == "table" and f.endian then fieldBig = f.endian == ">" end
-				r[#r+1] = {n, formater, size,  fieldBig, f or comment }
+				r[#r+1] = {n, formater, size,  fieldBig, f or comment, type_size}
 			end
 		end)
 		lastBfName = bfName or lastBfName

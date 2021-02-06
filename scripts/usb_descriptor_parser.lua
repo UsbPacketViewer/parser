@@ -29,7 +29,7 @@ local parse_unknown_desc = make_desc_parser("Unknown", [[
     struct {
         uint8_t bLength;          // {format = "dec"}
         uint8_t bDescriptorType;  // _G.get_descriptor_name
-        uint8_t data[bLength];
+        uint8_t data[bLength-2];
     }
 ]])
 
@@ -81,7 +81,7 @@ descTable[macro_defs.CFG_DESC] = make_desc_parser("Config", [[
 descTable[macro_defs.STRING_DESC] = make_desc_parser("String",[[
     uint8_t  bLength;             // {format = "dec"}
     uint8_t  bDescriptorType;     // _G.get_descriptor_name
-    uint16_t wString[bLength-2];  // {format = "unicode"}
+    uint16_t wString[bLength/2-1];  // {format = "unicode"}
 ]])
 
 local currentInterface = {}

@@ -84,9 +84,17 @@ function parser.parse_setup(data, context)
     else                   recipStr = "Reserved"
     end
     setup.recip = recipStr
-    
+    if typStr == "Class" and recipStr == "Endpoint" then
+        local itf = context:get_endpoint_interface(wIndex & 0xff)
+        local cls = context.get_interface_class and context:get_interface_class(itf)
+        cls = cls or context.class_handler
+        if cls and cls.parse_setup then
+            local r = cls.parse_setup(setup, context)
+            if r then return r end
+        end
+    end
     if recipStr == "Interface" then
-        local cls = context.get_interface_class and context:get_interface_class(wIndex)
+        local cls = context.get_interface_class and context:get_interface_class(wIndex & 0xff)
         cls = cls or context.class_handler
         if cls and cls.parse_setup then
             local r = cls.parse_setup(setup, context)
@@ -156,8 +164,17 @@ function parser.parse_setup(data, context)
 end
 
 function parser.parse_data(setup, data, context)
+    if setup.type == "Class" and setup.recip == "Endpoint" then
+        local itf = context:get_endpoint_interface(setup.wIndex & 0xff)
+        local cls = context.get_interface_class and context:get_interface_class(itf)
+        cls = cls or context.class_handler
+        if cls and cls.parse_setup_data then
+            local r = cls.parse_setup_data(setup, data, context)
+            if r then return r end
+        end
+    end
     if setup.recip == "Interface" then
-        local cls = context.get_interface_class and context:get_interface_class(setup.wIndex)
+        local cls = context.get_interface_class and context:get_interface_class(setup.wIndex & 0xff)
         cls = cls or context.class_handler
         if cls and cls.parse_setup_data then
             local r = cls.parse_setup_data(setup, data, context)

@@ -3,7 +3,7 @@
 -- a typical class has these functions
 -- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
 -- cls.parse_setup_data(setup, data, context)    return a html to describe the data
--- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
+-- cls.on_transaction(self, param, data, needDetail, forceBegin)  return macro_defs.RES_xxx
 -- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
 -- cls.get_name(descriptor, context)              return a field name table
 -- HID class definition  https://www.usb.org/sites/default/files/CDC1.2_WMC1.1_012011.zip
@@ -157,7 +157,6 @@ local function rndis_on_transaction(self, param, data, needDetail, forceBegin)
     if res == macro_defs.RES_NONE then res = macro_defs.RES_MORE end
 
     if needDetail then
-        context.data = (context.data or "") .. data
         context.status = "incomp"
         context.title = "CDC Rndis DATA"
         context.name = "CDC DATA"

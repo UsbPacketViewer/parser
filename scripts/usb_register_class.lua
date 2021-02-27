@@ -42,24 +42,38 @@ end
 local function check_ep_require(self, eps)
     local ep_cnt = #self.ep_require
     local ep_res = {}
+    local ep_opt_cnt = 0
+    for j,v in ipairs(self.ep_require) do
+        if v >= 4 then
+            ep_res[j] = 255
+            ep_opt_cnt = ep_opt_cnt + 1
+        end
+    end
+
     for i=1,#eps do
         local ep = eps[i]
         for j,v in ipairs(self.ep_require) do
-            if v == 1 then
+            if v == 1 or v == 5 then
                 if (ep & 0x80) == 0x80 then
                     ep_res[j] = ep
                     ep_cnt = ep_cnt - 1
+                    break
                 end
-            else
+            elseif v == 0 or v == 4 then
                 if (ep & 0x80) == 0x00 then
                     ep_res[j] = ep
                     ep_cnt = ep_cnt - 1
+                    break
                 end
+            else
+                ep_res[j] = ep
+                ep_cnt = ep_cnt - 1
+                break
             end
         end
     end
-    if ep_cnt ~= 0 then
-        error("fail to parse endpoint requiement\n" .. debug.traceback())
+    if ep_cnt > ep_opt_cnt then
+        error("fail to parse endpoint requirement\n" .. debug.traceback())
     end
     return ep_res
 end
@@ -81,6 +95,14 @@ local function get_context(self, needDetail, pid)
     return context
 end
 
+
+local function get_endpoint_interface_data(self, addr, ep)
+    local dev = self.upv.get_decoder(addr, 0)
+    if not dev then return {} end
+    local itf, alt = dev:get_endpoint_interface(ep)
+    return dev:get_interface_data(itf, alt)
+end
+
 function register_class_handler(cls)
     local old = class_handlers[cls.name]
     cls.ep_require = parse_ep_require(cls.endpoints or {})
@@ -93,6 +115,7 @@ function register_class_handler(cls)
         res.check_ep_require = check_ep_require
         res.get_context = get_context
         res.class_handler = cls
+        res.get_endpoint_interface_data = get_endpoint_interface_data
         return res
     end
     class_handlers[cls.name] = cls

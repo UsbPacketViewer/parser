@@ -19,6 +19,7 @@ local function on_transaction(self, param, data, needDetail, forceBegin)
     end
     self.addr = addr
     self.interfaces = self.interfaces or {}
+    self.interface_data = self.interface_data or {}
     context.state = context.state or macro_defs.ST_SETUP
     if forceBegin or (pid == macro_defs.PID_SETUP) then
         context.state = macro_defs.ST_SETUP
@@ -163,9 +164,25 @@ local function on_transaction(self, param, data, needDetail, forceBegin)
     end
 end
 
+local function get_endpoint_interface(self, endpoint)
+    return self.endpoint_itf[endpoint], self.endpoint_alt[endpoint]
+end
 
 local function get_interface_class(self, index)
     return self.interfaces[index]
+end
+
+local function get_interface_data(self, itf, alt)
+    return self.interface_data[itf]
+end
+
+local function current_interface_data(self)
+    return get_interface_data(self, self.current_itf_n, self.current_itf_alt)
+end
+
+local function set_current_interface(self, itf_desc)
+    self.current_itf_n = itf_desc:byte(3)
+    self.current_itf_alt = itf_desc:byte(4)
 end
 
 local function current_device(self)
@@ -203,6 +220,7 @@ local function setup_interface_handler(self, config_desc)
     local iad_cnt = 0
     local total = #config_desc
     local cur_itf_n = 0
+    local cur_alt_n = 0
     local decoder = nil
     local eps = {}
     local mpss = {}
@@ -233,6 +251,8 @@ local function setup_interface_handler(self, config_desc)
             end
             itf_desc = config_desc:sub(i, i + len - 1)
             cur_itf_n = itf_desc:byte(3)
+            cur_alt_n = itf_desc:byte(4)
+            self.interface_data[cur_itf_n] = self.interface_data[cur_itf_n] or {}
             local handler = nil
             decoder = nil
             if self.device_parser and self.device_parser.get_interface_handler then
@@ -255,6 +275,10 @@ local function setup_interface_handler(self, config_desc)
             end
         elseif t == macro_defs.ENDPOINT_DESC then
             local ep = config_desc:byte(i+2)
+            self.endpoint_itf = self.endpoint_itf or {}
+            self.endpoint_itf[ep] = cur_itf_n
+            self.endpoint_alt = self.endpoint_alt or {}
+            self.endpoint_alt[ep] = cur_alt_n
             local mps = config_desc:byte(i+4) + (config_desc:byte(i+5) * 256)
             eps[#eps+1] = ep
             mpss[#mpss+1] = mps
@@ -278,6 +302,10 @@ local function make_control_xfer_decoder(upv)
     res.setup_device_handler = setup_device_handler
     res.setup_interface_handler = setup_interface_handler
     res.get_interface_class = get_interface_class
+    res.get_endpoint_interface = get_endpoint_interface
+    res.current_interface_data = current_interface_data
+    res.set_current_interface = set_current_interface
+    res.get_interface_data = get_interface_data
     res.current_device = current_device
     res.find_class = find_class
     res.upv = upv

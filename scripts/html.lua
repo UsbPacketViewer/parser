@@ -141,7 +141,8 @@ local type2size = {
 local function hexFmt(v, len, isBig)
 	isBig = isBig and ">" or "<"
 	if type(v) == "string" then
-		v = unpack(isBig .. "I" .. len, v)
+		local ss = len <= 4 and len or 4
+		v = unpack(isBig .. "I" .. ss, v)
 	end
 	return fmt("0x%0" .. (len*2) .. "X", v)
 end
@@ -240,7 +241,12 @@ end
 
 local function dynamic_get_size(n, type_size)
 	return function(res, data, offset)
-		if #n < 1 then return 1 end
+		local def_res = #data
+		if offset > #data then
+			def_res = 0
+		end
+
+		if #n < 1 then return def_res end
 		res.math = math
 		local func, t = load("return (" .. n .. ")\n", "calc size: \"" .. n .. "\"", "tb", res)
 		if type(func) == "function" then
@@ -252,7 +258,7 @@ local function dynamic_get_size(n, type_size)
 		else
 			print("dynamic_get_size error parse",t)
 		end
-		return 1
+		return def_res
 	end
 end
 
@@ -333,10 +339,11 @@ local function build_struct(info, data, name)
 			local oldTV = t
 			t = 0
 			if not truncated then
+				local ss = data_size <= 4 and data_size or 4
 				if formater == hexFmt or formater == decFmt then
-					t = unpack(prefix .."I"..data_size, data, offset)
+					t = unpack(prefix .."I"..ss, data, offset)
 				elseif formater == signedFmt then
-					t = unpack(prefix .."i"..data_size, data, offset)
+					t = unpack(prefix .."i"..ss, data, offset)
 				end
 			end
             if type(fields) == "table" then
@@ -492,7 +499,7 @@ local function create_struct(desc, field, isBig)
 						end
 					end
 				else
-					formater = hexFmt
+					formater = t:sub(1,1) == 'i' and signedFmt or hexFmt
 					size = 1
 					if f and type(f) == "table" and f.format then
 						if f.format == "string" or f.format == "str" then

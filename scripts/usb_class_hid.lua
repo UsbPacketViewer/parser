@@ -3,7 +3,7 @@
 -- a typical class has these functions
 -- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
 -- cls.parse_setup_data(setup, data, context)    return a html to describe the data
--- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
+-- cls.on_transaction(self, param, data, needDetail, forceBegin)  return macro_defs.RES_xxx
 -- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
 -- cls.get_name(descriptor, context)              return a field name table
 -- HID class definition  https://www.usb.org/sites/default/files/documents/hid1_11.pdf
@@ -177,7 +177,7 @@ end
 
 local function hid_on_transaction(self, param, data, needDetail, forceBegin)
     local addr, ep, pid, ack = param:byte(1), param:byte(2), param:byte(3), param:byte(4)
-    if pid ~= macro_defs.PID_IN then
+    if pid ~= macro_defs.PID_IN and pid ~= macro_defs.PID_OUT then
         return macro_defs.RES_NONE
     end
     if ack ~= macro_defs.PID_ACK then
@@ -249,6 +249,7 @@ end
 
 register_class_handler(build_hid_class("HID Boot Key", key_on_transaction, 1, 1))
 register_class_handler(build_hid_class("HID Boot Mouse", mouse_on_transaction, 1, 2))
+cls.endpoints = { EP_IN("Incoming Data", true), EP_OUT("Outgoing Data", true) }
 register_class_handler(build_hid_class("HID User", hid_on_transaction, nil, nil))
 
 package.loaded["usb_class_hid"] = cls

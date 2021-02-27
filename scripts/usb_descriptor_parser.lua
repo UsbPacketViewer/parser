@@ -116,10 +116,10 @@ descTable[macro_defs.ENDPOINT_DESC] = make_desc_parser("Endpoint", [[
     uint8_t  Direction:1;     // {[0] ="OUT", [1]="IN"}
     // bmAttributes
     uint8_t  Type:2;          // {[0]="Control", [1]="Isochronous", [2]="Bulk", [3]="Interrupt"}
-    uint8_t  SyncType:2       // {[0]="No Synchonisation", [1]="Asynchronous", [2]="Adaptive", [3]="Synchronous"}
-    uint8_t  UsageType:2      // {[0]="Data Endpoint", [1]="Feedback Endpoint", [2]="Explicit Feedback Data Endpoint", [3]="Reserved"}
+    uint8_t  SyncType:2;      // {[0]="No Synchonisation", [1]="Asynchronous", [2]="Adaptive", [3]="Synchronous"}
+    uint8_t  UsageType:2;     // {[0]="Data Endpoint", [1]="Feedback Endpoint", [2]="Explicit Feedback Data Endpoint", [3]="Reserved"}
     uint8_t  PacketPerFrame:2;// {[0]="1", [1]="2", [2]="3", [3]="Reserved"}
-    uint16_t wMaxPacketSize;
+    uint16_t wMaxPacketSize;  // {format = "dec"}
     uint8_t  bInterval;
 ]])
 
@@ -167,6 +167,7 @@ function parser.parse(data, context)
         if parseFunc then
             desc = desc or parseFunc(data, offset, context)
             if desc.bDescriptorType == macro_defs.INTERFACE_DESC then
+                context:set_current_interface(desc.rawData)
                 local cls = context:find_class(desc, lastIad)
                 if cls and cls.get_name then
                     currentInterface = cls.get_name(desc, context)

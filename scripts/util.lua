@@ -51,12 +51,25 @@ local STD_DESCRIPTOR_NAME = {
     "OTG"               ,
 }
 
-_G.EP_IN = function(name)
+_G.EP_IN = function(name, optional)
+    if optional then
+        return name .. "5"
+    end
     return name .. "1"
 end
 
-_G.EP_OUT = function(name)
+_G.EP_OUT = function(name, optional)
+    if optional then
+        return name .. "4"
+    end
     return name .. "0"
+end
+
+_G.EP_INOUT = function(name, optional)
+    if optional then
+        return name .. "6"
+    end
+    return name .. "2"
 end
 
 _G.get_std_request_name = function(v)

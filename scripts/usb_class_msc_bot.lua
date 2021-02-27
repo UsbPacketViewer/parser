@@ -3,7 +3,7 @@
 -- a typical class has these functions
 -- cls.parse_setup(setup, context),  update setup.html, setup.name field in setup, and return it
 -- cls.parse_setup_data(setup, data, context)    return a html to describe the data
--- cls.transferHandler(xfer, tansaction, timestamp_string, updateGraph, parserContext)  return  one of nil , true, "done"
+-- cls.on_transaction(self, param, data, needDetail, forceBegin)  return macro_defs.RES_xxx
 -- cls.descriptor_parser(data, offset, context)   return a parsed descriptor
 -- cls.get_name(descriptor, context)              return a field name table
 -- MSC class definition  https://www.usb.org/sites/default/files/usbmassbulk_10.pdf

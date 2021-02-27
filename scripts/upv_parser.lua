@@ -94,6 +94,7 @@ function upv.make_xfer_res(context)
         .. context.data
 end
 
+upv.get_decoder = get_decoder
 
 function upv_parse_transaction(param, data, needDetail, forceBegin, autoDecoder)
     local addr, ep = param:byte(1), param:byte(2)

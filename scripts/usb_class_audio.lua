@@ -390,7 +390,9 @@ local audio_as_interface  = {
         uint8_t   bSubframeSize;
         uint8_t   bBitResolution;
         uint8_t   bSamFreqType;  // 0 - Continuous
-        uint24_t  sampleFreq[ (bSamFreqType == 0) and 2 or bSamFreqType]; // {format = "dec"}
+        {
+            uint24_t  sampleFreq; // {format = "dec"}
+        }[ (bSamFreqType == 0) and 2 or bSamFreqType];
     ]]),
 }
 

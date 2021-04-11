@@ -392,7 +392,7 @@ local function create_struct(desc, field, isBig)
 		end
 		if l:find("}") then
 			local rep_name = nil
-			string.gsub(l, "}%[([^%[]*)%]",function(tn)
+			string.gsub(l, "}%s*%[([^%[]*)%]",function(tn)
 				rep_name = tn
 			end)
 			pop_rep(stk, r, rep_name)

@@ -103,7 +103,7 @@ local function on_transaction(self, param, data, needDetail, forceBegin)
                 if addr ~= 0 then
                     if setupType == "\x80\x06\x00\x01" then
                         self:setup_device_handler(context.data)
-                    elseif setupType == "\x80\x06\x00\x02" then
+                    elseif setupType:sub(1,2) == "\x80\x06" and setupType:sub(4) == "\x02"then
                         self:setup_interface_handler(context.data)
                     end
                 end

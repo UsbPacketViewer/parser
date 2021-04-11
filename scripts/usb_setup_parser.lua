@@ -159,7 +159,7 @@ function parser.parse_setup(data, context)
         render_field(setup, "wLength", ""),
     }
     setup.title = setup.title or reqTitle
-    setup.name = setup.name or bRequest_desc
+    setup.name = setup.name or get_std_request_name(bRequest, wValue, wIndex)
     return setup
 end
 

@@ -51,6 +51,15 @@ local STD_DESCRIPTOR_NAME = {
     "OTG"               ,
 }
 
+local DESCRIPTOR_NAME = {
+    [macro_defs.DEVICE_DESC    ] = "DevDesc",
+    [macro_defs.CFG_DESC       ] = "CfgDesc",
+    [macro_defs.STRING_DESC    ] = "StrDesc",
+    [macro_defs.DEV_QUAL_DESC  ] = "QualDesc",
+    [macro_defs.OTHER_DESC     ] = "OtherSpeed",
+    [macro_defs.BOS_DESC       ] = "BOS Desc",
+}
+
 _G.EP_IN = function(name, optional)
     if optional then
         return name .. "5"
@@ -72,9 +81,34 @@ _G.EP_INOUT = function(name, optional)
     return name .. "2"
 end
 
-_G.get_std_request_name = function(v)
+_G.get_std_request_name = function(v, wValue, wIndex)
     if v < #STD_REQ_NAME then
-        return STD_REQ_NAME[v+1]
+        if (v == macro_defs.GET_DESCRIPTOR or v == macro_defs.GET_DESCRIPTOR) and wValue then
+            local idx = wValue & 0xff
+            local t = wValue >> 8
+            local prefix = "Get "
+            if v == macro_defs.SET_DESCRIPTOR then
+                prefix = "Set "
+            end
+            local postfix = ""
+            if t == macro_defs.CFG_DESC or t == macro_defs.STRING_DESC then
+                postfix = ":"..idx
+            end
+            if DESCRIPTOR_NAME[t] then
+                return prefix .. DESCRIPTOR_NAME[t] .. postfix
+            end
+        end
+        local postfix = ""
+        if v == macro_defs.SET_CONFIG and wValue then
+            postfix = " :" .. wValue
+        end
+        if v == macro_defs.SET_INTERFACE and wIndex then
+            return  "Set Itf :" .. wIndex
+        end
+        if v == macro_defs.GET_INTERFACE and wIndex then
+            return  "Get Itf :" .. wIndex
+        end
+        return STD_REQ_NAME[v+1] .. postfix
     else
         return "Unknown Request"
     end

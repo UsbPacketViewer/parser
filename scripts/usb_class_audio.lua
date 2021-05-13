@@ -920,6 +920,7 @@ end
 
 local function as_descriptpr_parser(data, offset, context)
     local len = data:byte(offset)
+    if #data < offset+len then return end
     local t = data:byte(offset + 1)
     local subType = data:byte(offset + 2)
     if t == macro_defs.ENDPOINT_DESC and len == 9 then
@@ -942,6 +943,7 @@ end
 
 local function ac_descriptor_parser(data, offset, context)
     local len = data:byte(offset)
+    if #data < offset+len then return end
     local t = data:byte(offset + 1)
     local subType = data:byte(offset + 2)
     if t == macro_defs.ENDPOINT_DESC and len == 9 then

@@ -954,6 +954,7 @@ end
 
 local function vs_descriptpr_parser(data, offset, context)
     local len = data:byte(offset)
+    if #data < offset+len then return end
     local t = data:byte(offset + 1)
     local subType = data:byte(offset + 2)
     if t == macro_defs.CS_ENDPOINT then
@@ -974,6 +975,7 @@ end
 
 local function vc_descriptor_parser(data, offset, context)
     local len = data:byte(offset)
+    if #data < offset+len then return end
     local t = data:byte(offset + 1)
     local subType = data:byte(offset + 2)
     if t ~= macro_defs.CS_INTERFACE then

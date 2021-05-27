@@ -295,6 +295,9 @@ local cdc_desc = {
 }
 
 function cls.descriptor_parser(data, offset, context)
+    if #data < offset + 1 then return nil end
+    local len = data:byte(offset+1)
+    if #data < offset + len then return nil end
     if unpack("I1", data, offset + 1) ~= macro_defs.CS_INTERFACE then
         return nil
     end

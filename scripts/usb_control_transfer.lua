@@ -173,6 +173,10 @@ local function get_interface_class(self, index)
 end
 
 local function get_interface_data(self, itf, alt)
+    local res = self.interface_data[itf]
+    if not res then
+        self.interface_data[itf] = {}
+    end
     return self.interface_data[itf]
 end
 

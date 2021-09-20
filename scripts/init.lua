@@ -12,6 +12,7 @@ require("usb_class_audio")
 require("usb_class_video")
 
 require("usb_device_ftdi")
+require("usb_device_aw_efex")
 
 
 require("upv_parser")

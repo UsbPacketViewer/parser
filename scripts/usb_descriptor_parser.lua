@@ -123,20 +123,6 @@ descTable[macro_defs.ENDPOINT_DESC] = make_desc_parser("Endpoint", [[
     uint8_t  bInterval;
 ]])
 
-descTable[macro_defs.HID_DESC] = make_desc_parser("HID", [[
-    struct{
-        uint8_t bLength;
-        uint8_t bDescriptorType;   // _G.get_descriptor_name
-        uint16_t bcdHID;
-        uint8_t  bCountryCode;
-        uint8_t  bNumDescriptors;
-        {
-            uint8_t bDescriptorType;  // {[0x22] = "Report Descriptor", [0x33] = "Physical Descriptor"}
-            uint16_t wDescriptorLength; // {format="dec"}
-        }[bNumDescriptors];
-    }
-]])
-
 descTable[macro_defs.IAD_DESC] = make_desc_parser("IAD", [[
     uint8_t  bLength;          // {format = "dec"}
     uint8_t  bDescriptorType;  // _G.get_descriptor_name
@@ -147,7 +133,7 @@ descTable[macro_defs.IAD_DESC] = make_desc_parser("IAD", [[
     uint8_t  bFunctionProtocol;
     uint8_t  iFunction;
 ]])
- 
+
 function parser.parse(data, context)
     local info = {}
     local offset = 1
@@ -156,16 +142,11 @@ function parser.parse(data, context)
     local lastIadCount = 0
     while offset < #data do
         local t = data:byte(offset+1)
+        local parseFunc = descTable[t]
         local desc = nil
-        if lastInterface then
-            local cls = context:find_class(lastInterface, lastIad)
-            if cls and cls.descriptor_parser then
-                desc = cls.descriptor_parser(data, offset, context)
-            end
-        end
-        local parseFunc = descTable[t] or parse_unknown_desc
-        if parseFunc then
-            desc = desc or parseFunc(data, offset, context)
+
+        if parseFunc then --standard descriptor
+            desc = parseFunc(data, offset, context)
             if desc.bDescriptorType == macro_defs.INTERFACE_DESC then
                 context:set_current_interface(desc.rawData)
                 local cls = context:find_class(desc, lastIad)
@@ -186,13 +167,22 @@ function parser.parse(data, context)
                 lastIad = desc
                 lastIadCount = desc.bInterfaceCount
             end
-            offset = offset + desc.bLength
-            info.html = info.html or ""
-            info.html = info.html .. desc.html
-            info[#info+1] = desc
-            if desc.bLength < 2 then
-                break
+        elseif lastInterface then
+            local cls = context:find_class(lastInterface, lastIad)
+            if cls and cls.descriptor_parser then
+                desc = cls.descriptor_parser(data, offset, context)
             end
+        end
+
+        -- use the default parse function.
+        desc = desc or parse_unknown_desc(data, offset, context)
+
+        offset = offset + desc.bLength
+        info.html = info.html or ""
+        info.html = info.html .. desc.html
+        info[#info+1] = desc
+        if desc.bLength < 2 then
+            break
         end
     end
     --gotDescriptor(info, context)

@@ -120,8 +120,6 @@ _G.get_descriptor_name = function(v)
     end
     if (v>=0) and (v < #STD_DESCRIPTOR_NAME) then
         return STD_DESCRIPTOR_NAME[v+1] .. " Descriptor"
-    elseif v == macro_defs.HID_DESC then
-      return "HID Descritpor"
     elseif v == macro_defs.REPORT_DESC then
         return "Report Descritpor"
     elseif v == macro_defs.FUNC_DESC then

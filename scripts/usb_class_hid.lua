@@ -18,6 +18,33 @@ local unpack = string.unpack
 local cls = {}
 cls.name = "HID"
 
+local HID_DESCRIPTOR = 0x21
+
+local struct_hid_descriptor = html.create_struct([[
+    struct{
+        uint8_t bLength;
+        uint8_t bDescriptorType;   // HID descriptor
+        uint16_t bcdHID;
+        uint8_t  bCountryCode;
+        uint8_t  bNumDescriptors;
+        {
+            uint8_t bDescriptorType;  // {[0x22] = "Report Descriptor", [0x33] = "Physical Descriptor"}
+            uint16_t wDescriptorLength; // {format="dec"}
+        }[bNumDescriptors];
+    }
+]])
+
+function cls.descriptor_parser(data, offset, context)
+    local t = data:byte(offset+1)
+
+    if t == HID_DESCRIPTOR then
+        local rawData = data:sub(offset)
+        local res = struct_hid_descriptor:build(rawData, "HID Descriptor")
+        res.rawData = rawData
+        return res
+    end
+end
+
 local KEY_A = 0x04
 local KEY_Z = 0x1d
 local KEY_1 = 0x1e
@@ -121,7 +148,7 @@ end
 
 function cls.parse_setup_data(setup, data, context)
     local s = req2str[setup.bRequest]
-    if s then 
+    if s then
         return "<h1>" .. s .." data </h1>"
     end
     if (setup.bRequest == macro_defs.GET_DESCRIPTOR) and ((setup.wValue>>8) == macro_defs.REPORT_DESC) then

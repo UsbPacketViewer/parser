@@ -288,7 +288,7 @@ local function build_struct(info, data, name)
     local offset = 1
 	tb.title = name or info.name
 	res.name = name or info.name
-    tb.header = {"Filed", "Value", "Description"}
+    tb.header = {"Field", "Value", "Description"}
 	local rep_info = {}
 	local isBig = info.isBig
 	local i = 0

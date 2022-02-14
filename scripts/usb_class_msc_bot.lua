@@ -29,7 +29,7 @@ function cls.parse_setup(setup, context)
     end
     local bRequest_desc = "MSC Unknown Request"
     if     setup.bRequest == BOT_GET_MAX_LUN then
-        bRequest_desc = "Get Max LUN"
+        bRequest_desc = "Get Max LUN(Logic Unit Number)"
     elseif setup.bRequest == BOT_RESET then
         bRequest_desc = "BOT Reset"
     end

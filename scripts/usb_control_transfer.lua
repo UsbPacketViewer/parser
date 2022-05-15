@@ -96,7 +96,7 @@ local function on_transaction(self, param, data, needDetail, forceBegin)
             context.state = macro_defs.ST_SETUP
             if needDetail then
                 local t = setup_parser.parse_data(context.setup, context.data, self)
-                context.infoHtml = context.infoHtml .. t
+                context.infoHtml = context.infoHtml .. (t or "")
                 context.status = "success"
                 return macro_defs.RES_END, self.upv.make_xact_res("Status Out", "", context.data), self.upv.make_xfer_res(context)
             else

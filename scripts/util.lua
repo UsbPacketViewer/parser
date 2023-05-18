@@ -126,6 +126,8 @@ _G.get_descriptor_name = function(v)
         return "Function Descritpor"
     elseif v == macro_defs.HUB_DESC then
         return "HUB Descritpor"
+    elseif v == macro_defs.IAD_DESC then
+        return "IAD Descriptor"
     else
         return "Unknown Descritpor"
     end

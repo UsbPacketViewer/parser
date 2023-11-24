@@ -86,13 +86,13 @@ local struct_port_status = html.create_struct([[
         uint16_t  Suspend:1;          // {[0] = "Not Suspend",  [1] = "Suspend/Resuming", }
         uint16_t  OverCurrent:1;      // {[0] = "No",  [1] = "Over-current occur", }
         uint16_t  Reset:1;            // {[0] = "not asserted",  [1] = "Asserted", }
-        uint16_t  Reserved:1;
+        uint16_t  Reserved:3;
         uint16_t  Power:1;            // {[0] = "Power off",  [1] = "Power on", }
         uint16_t  LowSpeed:1;         // {[0] = "Full/High Speed",  [1] = "Low Speed", }
         uint16_t  HighSpeed:1;        // {[0] = "Full Speed",  [1] = "High Speed", }
         uint16_t  TestMode:1;         // {[0] = "Not Test Mode",  [1] = "Test Mode", }
         uint16_t  IndicatorCtrl:1;    // {[0] = "default",  [1] = "Software control", }
-        uint16_t  Reserved:5;
+        uint16_t  Reserved:3;
         // wPortChange
         uint16_t  ConnectChg:1;       // {[0] = "No Change",  [1] = "Changed",    }
         uint16_t  EnabledChg:1;       // {[0] = "No Change",  [1] = "Disable by Port_Error condition", }

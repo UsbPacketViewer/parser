@@ -29,7 +29,7 @@ local struct_device_status = html.create_struct([[
     struct{
         // wStatus
         uint16_t SelfPowered:1;   // {[0] = "Bus Powered", [1] = "Self Powered"}
-        uint16_t RemoteWakeUp:1;  // {"Disabled", [1] = "Enabled"}
+        uint16_t RemoteWakeUp:1;  // {[0] = "Disabled", [1] = "Enabled"}
         uint16_t reserved:14;
     }
 ]])

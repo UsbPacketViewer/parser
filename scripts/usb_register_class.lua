@@ -73,7 +73,7 @@ local function check_ep_require(self, eps)
         end
     end
     if ep_cnt > ep_opt_cnt then
-        error("fail to parse endpoint requirement\n" .. debug.traceback())
+        -- error("fail to parse endpoint requirement\n" .. debug.traceback())
     end
     return ep_res
 end

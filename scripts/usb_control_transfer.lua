@@ -165,7 +165,7 @@ local function on_transaction(self, param, data, needDetail, forceBegin)
 end
 
 local function get_endpoint_interface(self, endpoint)
-    return self.endpoint_itf[endpoint], self.endpoint_alt[endpoint]
+    return self.endpoint_itf and self.endpoint_itf[endpoint], self.endpoint_alt and self.endpoint_alt[endpoint]
 end
 
 local function get_interface_class(self, index)
@@ -173,6 +173,10 @@ local function get_interface_class(self, index)
 end
 
 local function get_interface_data(self, itf, alt)
+    if not self.interface_data then
+        self.interface_data = {}
+    end
+    itf = ift or 0
     local res = self.interface_data[itf]
     if not res then
         self.interface_data[itf] = {}

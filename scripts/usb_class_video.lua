@@ -1092,9 +1092,13 @@ local function data_on_transaction(self, param, data, needDetail, forceBegin)
             local t = self:get_endpoint_interface_data(addr, ep)
             context.infoHtml  =  "<h1>Video Frame</h1>"
             context.status = "success"
-            if t.video_frame_decoder then
+            if t and t.video_frame_decoder then
                 context.desc = t.video_frame_decoder.name
                 context.infoHtml = t.video_frame_decoder.decode(context.data, self)
+            else 
+                local decoder = video_vs_decoder[6]
+                context.desc = decoder.name
+                context.infoHtml = decoder.decode(context.data, self)
             end
         end
         local xfer_res = self.upv.make_xfer_res(context)

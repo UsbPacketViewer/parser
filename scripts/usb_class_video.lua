@@ -1065,13 +1065,21 @@ local function data_on_transaction(self, param, data, needDetail, forceBegin)
     local endMark    = self.upv:is_short_packet(addr, ep, data) and macro_defs.RES_END or macro_defs.RES_NONE
     local begindMark = #context.data == 0 and macro_defs.RES_BEGIN or macro_defs.RES_NONE
 
-    local res = endMark | begindMark
-    if res == macro_defs.RES_NONE then res = macro_defs.RES_MORE end
-
     if #data > 2 then
         local header_len = data:byte(1)
+        if (data:byte(2) & 2)  == 0 then
+            endMark = macro_defs.RES_NONE
+        else
+            endMark = macro_defs.RES_END
+        end
+        if #data == header_len then
+            endMark = macro_defs.RES_END
+        end
         context.data = context.data .. data:sub(header_len + 1)
     end
+
+    local res = endMark | begindMark
+    if res == macro_defs.RES_NONE then res = macro_defs.RES_MORE end
 
     if needDetail then
         --context.data = (context.data or "") .. data

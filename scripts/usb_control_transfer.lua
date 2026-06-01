@@ -176,7 +176,7 @@ local function get_interface_data(self, itf, alt)
     if not self.interface_data then
         self.interface_data = {}
     end
-    itf = ift or 0
+    itf = itf or 0
     local res = self.interface_data[itf]
     if not res then
         self.interface_data[itf] = {}
